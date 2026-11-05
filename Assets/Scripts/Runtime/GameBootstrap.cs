@@ -147,8 +147,14 @@ namespace VoxelValley
 
         void Host(string name)
         {
+            if (!RelayConnector.LanSupported)
+            {
+                _ui.SetStatus("웹 버전은 '온라인 방 만들기'로 플레이해 주세요.");
+                return;
+            }
             _joinCode = null;
             Remember(name, null);
+            _transport.UseWebSockets = false;
             _transport.SetConnectionData("127.0.0.1", Port, "0.0.0.0");
             if (!_net.StartHost())
             {
@@ -222,6 +228,12 @@ namespace VoxelValley
                 JoinOnline(address.Trim());
                 return;
             }
+            if (!RelayConnector.LanSupported)
+            {
+                _ui.SetStatus("웹 버전은 6자리 참가 코드로만 참가할 수 있어요.");
+                return;
+            }
+            _transport.UseWebSockets = false;
             _transport.SetConnectionData(address, Port);
             if (!_net.StartClient())
             {

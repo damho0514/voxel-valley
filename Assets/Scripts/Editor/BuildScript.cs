@@ -25,6 +25,21 @@ namespace VoxelValley.EditorTools
             Build(BuildTarget.iOS, "Build/iOS");
         }
 
+        /// <summary>
+        /// Browser build for GitHub Pages: Brotli with JS decompression fallback
+        /// (Pages can't send Content-Encoding headers) and the PWA template so it
+        /// can be added to a phone's home screen.
+        /// </summary>
+        [MenuItem("Tools/Voxel Valley/Build WebGL")]
+        public static void WebGL()
+        {
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
+            PlayerSettings.WebGL.decompressionFallback = true;
+            PlayerSettings.WebGL.template = "APPLICATION:PWA";
+            PlayerSettings.WebGL.dataCaching = true;
+            Build(BuildTarget.WebGL, "Build/WebGL");
+        }
+
         [MenuItem("Tools/Voxel Valley/Build iOS Simulator (Xcode project)")]
         public static void IOSSimulator()
         {

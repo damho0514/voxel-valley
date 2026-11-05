@@ -9,11 +9,17 @@ namespace VoxelValley
     {
         static Font _font;
 
-        /// <summary>An OS font with Hangul glyphs when available, else Unity's built-in font.</summary>
+        /// <summary>
+        /// The bundled NanumGothic (SIL OFL, has Hangul) so every platform looks
+        /// the same and the web build — which can't use OS fonts — shows Korean.
+        /// Falls back to an OS font, then Unity's built-in one.
+        /// </summary>
         public static Font Font
         {
             get
             {
+                if (_font != null) return _font;
+                _font = Resources.Load<Font>("Fonts/NanumGothic-Regular");
                 if (_font != null) return _font;
                 string[] preferred =
                 {

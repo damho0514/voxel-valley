@@ -17,6 +17,13 @@
   서버가 모든 블록 편집을 검증(거리·플레이어 위치·기반암·보유 아이템·초당 12회)하고 모두에게 전파
 - 월드 저장: 방장의 기기에 시드·시간·편집 내역·플레이어 인벤토리 자동 저장(30초마다, 나갈 때). 이전 v1 저장 파일도 읽음
 
+## 바로 플레이 (웹)
+
+**https://damho0514.github.io/voxel-valley/** — PC 브라우저, iPhone Safari, Android Chrome에서 바로 실행.
+iPhone은 Safari 공유 버튼 → **홈 화면에 추가**하면 앱처럼 쓸 수 있어요.
+웹에서는 **온라인 방(참가 코드)** 으로만 플레이해요(브라우저는 같은 와이파이용 UDP 연결을 못 써요).
+앱과 웹은 같은 온라인 방에 함께 들어올 수 있어요(Relay wss).
+
 ## 구조
 
 | 경로 | 설명 |
@@ -42,6 +49,9 @@ $UNITY -batchmode -quit -projectPath . -executeMethod VoxelValley.EditorTools.Bu
 
 # macOS 앱 → Build/macOS/VoxelValley.app
 $UNITY -batchmode -quit -projectPath . -executeMethod VoxelValley.EditorTools.BuildScript.MacOS
+
+# 웹 → Build/WebGL (gh-pages 브랜치에 그대로 올리면 GitHub Pages로 배포)
+$UNITY -batchmode -quit -projectPath . -executeMethod VoxelValley.EditorTools.BuildScript.WebGL
 
 # iOS Xcode 프로젝트 → Build/iOS (Xcode로 열어 서명·설치)
 $UNITY -batchmode -quit -projectPath . -executeMethod VoxelValley.EditorTools.BuildScript.IOS

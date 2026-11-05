@@ -238,6 +238,23 @@ namespace VoxelValley
 
         public void SetLoading(bool loading) => _fade.gameObject.SetActive(loading);
 
+        Text _rotateHint;
+
+        /// <summary>Phones held upright (e.g. the web build in Safari) get a nudge to rotate.</summary>
+        void UpdateRotateHint()
+        {
+            if (_rotateHint == null)
+            {
+                var panel = UiFactory.Panel(transform.GetChild(0), "RotateHint", new Color(0.08f, 0.16f, 0.2f, 0.96f));
+                UiFactory.Stretch(panel);
+                _rotateHint = UiFactory.Label(panel, "화면을 가로로 돌려 주세요\n<size=28>가로 화면에서 더 넓게 보여요</size>", 44);
+                _rotateHint.supportRichText = true;
+                UiFactory.Stretch(_rotateHint.rectTransform);
+            }
+            bool portrait = TouchUi && Screen.height > Screen.width * 1.1f;
+            _rotateHint.transform.parent.gameObject.SetActive(portrait);
+        }
+
         // ---------------------------------------------------------------- chat
 
         public void OpenChat()
@@ -288,6 +305,7 @@ namespace VoxelValley
 
         void Update()
         {
+            UpdateRotateHint();
             if (_hud == null || !_hud.gameObject.activeSelf) return;
             for (int i = 0; i < _slots.Length; i++)
                 _slots[i].color = i == GameInput.SelectedSlot ? new Color(1, 1, 1, 0.75f) : new Color(1, 1, 1, 0.15f);

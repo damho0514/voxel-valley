@@ -18,7 +18,19 @@ namespace VoxelValley
     public static class RelayConnector
     {
         public const int MaxPlayers = 8;
-        const string Protocol = "dtls";
+        /// <summary>
+        /// Secure WebSockets everywhere: browsers can only use WebSockets, and
+        /// everyone in a relay session has to speak the same transport.
+        /// </summary>
+        const string Protocol = "wss";
+
+        /// <summary>Browsers can't open UDP sockets, so the web build only does online rooms.</summary>
+        public const bool LanSupported =
+#if UNITY_WEBGL && !UNITY_EDITOR
+            false;
+#else
+            true;
+#endif
 
         public static bool IsCloudLinked => !string.IsNullOrEmpty(Application.cloudProjectId);
 
@@ -46,6 +58,7 @@ namespace VoxelValley
             await SignInAsync();
             var allocation = await RelayService.Instance.CreateAllocationAsync(MaxPlayers - 1);
             var code = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+            transport.UseWebSockets = true;
             transport.SetRelayServerData(allocation.ToRelayServerData(Protocol));
             return code;
         }
@@ -54,6 +67,7 @@ namespace VoxelValley
         {
             await SignInAsync();
             var allocation = await RelayService.Instance.JoinAllocationAsync(joinCode.Trim().ToUpperInvariant());
+            transport.UseWebSockets = true;
             transport.SetRelayServerData(allocation.ToRelayServerData(Protocol));
         }
 
