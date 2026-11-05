@@ -18,6 +18,8 @@ namespace VoxelValley.Core
         Occupied,
         InsidePlayer,
         NotPlaceable,
+        NoItem,
+        TooFast,
     }
 
     /// <summary>
@@ -35,7 +37,7 @@ namespace VoxelValley.Core
         {
             if (y < 0 || y >= Chunk.Height) return EditResult.OutOfWorld;
             if (!InReach(eye, x, y, z)) return EditResult.TooFar;
-            if (current == BlockId.Air) return EditResult.NothingThere;
+            if (current == BlockId.Air || current == BlockId.Water) return EditResult.NothingThere;
             if (!Blocks.Get(current).Breakable) return EditResult.Unbreakable;
             return EditResult.Ok;
         }
@@ -47,7 +49,7 @@ namespace VoxelValley.Core
             if (y < 1 || y >= Chunk.Height) return EditResult.OutOfWorld;
             if (!Blocks.IsPlaceable(placing)) return EditResult.NotPlaceable;
             if (!InReach(eye, x, y, z)) return EditResult.TooFar;
-            if (current != BlockId.Air) return EditResult.Occupied;
+            if (!Blocks.IsReplaceable(current)) return EditResult.Occupied;
             foreach (var p in playerFeet)
                 if (Overlaps(p, x, y, z)) return EditResult.InsidePlayer;
             return EditResult.Ok;

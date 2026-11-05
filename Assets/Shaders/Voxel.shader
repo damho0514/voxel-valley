@@ -17,6 +17,7 @@ Shader "VoxelValley/Voxel"
             #pragma fragment frag
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
+            float _Daylight; // set globally by the day/night cycle
 
             sampler2D _MainTex;
 
@@ -37,7 +38,7 @@ Shader "VoxelValley/Voxel"
             {
                 fixed4 c = tex2D(_MainTex, i.uv);
                 clip(c.a - 0.5);
-                c.rgb *= i.color.rgb;
+                c.rgb *= i.color.rgb * _Daylight;
                 c.a = 1;
                 UNITY_APPLY_FOG(i.fogCoord, c);
                 return c;

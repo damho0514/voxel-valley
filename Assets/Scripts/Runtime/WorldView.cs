@@ -11,6 +11,7 @@ namespace VoxelValley
     public sealed class WorldView : MonoBehaviour
     {
         public Material Material;
+        public Material WaterMaterial;
         public Transform Focus;
         public int ViewRadius = 5;
         public int MeshesPerFrame = 2;
@@ -22,6 +23,7 @@ namespace VoxelValley
         readonly HashSet<ChunkCoord> _dirty = new HashSet<ChunkCoord>();
         readonly List<ChunkCoord> _scratch = new List<ChunkCoord>();
         readonly MeshData _meshData = new MeshData();
+        readonly MeshData _waterData = new MeshData();
         ChunkMesher.BlockLookup _lookup;
 
         public void Initialize(VoxelWorld world)
@@ -50,6 +52,8 @@ namespace VoxelValley
         }
 
         public BlockId GetBlock(Vector3Int b) => World?.GetBlock(b.x, b.y, b.z) ?? BlockId.Air;
+
+        public bool IsWater(Vector3 p) => GetBlock(ToBlock(p)) == BlockId.Water;
 
         /// <summary>Applies an edit and rebuilds affected meshes right away.</summary>
         public void SetBlock(int x, int y, int z, BlockId id)
@@ -88,7 +92,7 @@ namespace VoxelValley
             _scratch.Sort((a, b) => Dist2(a, center).CompareTo(Dist2(b, center)));
             for (int i = 0; i < _scratch.Count && i < MeshesPerFrame; i++)
             {
-                _views[_scratch[i]] = ChunkView.Create(_scratch[i], Material, transform);
+                _views[_scratch[i]] = ChunkView.Create(_scratch[i], Material, WaterMaterial, transform);
                 BuildMesh(_scratch[i]);
             }
 
@@ -111,8 +115,8 @@ namespace VoxelValley
         void BuildMesh(ChunkCoord c)
         {
             var chunk = World.GetOrCreateChunk(c);
-            ChunkMesher.Build(chunk, _lookup, _meshData);
-            _views[c].Apply(_meshData);
+            ChunkMesher.Build(chunk, _lookup, _meshData, _waterData);
+            _views[c].Apply(_meshData, _waterData);
         }
 
         static int Dist2(ChunkCoord a, ChunkCoord b)

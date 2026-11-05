@@ -34,9 +34,10 @@ namespace VoxelValley.EditorTools
                 m.renderQueue = (int)RenderQueue.Transparent;
             });
 
+            var water = MaterialAsset("Water", "VoxelValley/Water", m => m.renderQueue = (int)RenderQueue.Transparent);
             var player = PlayerPrefab();
             var world = WorldPrefab();
-            CreateScene(player, world, voxel, color, highlight);
+            CreateScene(player, world, voxel, color, highlight, water);
             AssetDatabase.SaveAssets();
             Debug.Log("[VoxelValley] Project setup complete");
         }
@@ -86,7 +87,7 @@ namespace VoxelValley.EditorTools
             {
                 var so = new SerializedObject(graphics[0]);
                 var list = so.FindProperty("m_AlwaysIncludedShaders");
-                foreach (var name in new[] { "VoxelValley/Voxel", "VoxelValley/Color" })
+                foreach (var name in new[] { "VoxelValley/Voxel", "VoxelValley/Color", "VoxelValley/Water" })
                 {
                     var shader = Shader.Find(name);
                     if (shader == null) continue;
@@ -154,7 +155,7 @@ namespace VoxelValley.EditorTools
             return prefab;
         }
 
-        static void CreateScene(GameObject player, GameObject world, Material voxel, Material color, Material highlight)
+        static void CreateScene(GameObject player, GameObject world, Material voxel, Material color, Material highlight, Material water)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             // Fog is set at runtime; enabling it here keeps its shader variants in builds.
@@ -168,6 +169,7 @@ namespace VoxelValley.EditorTools
             boot.VoxelMaterial = voxel;
             boot.ColorMaterial = color;
             boot.HighlightMaterial = highlight;
+            boot.WaterMaterial = water;
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };

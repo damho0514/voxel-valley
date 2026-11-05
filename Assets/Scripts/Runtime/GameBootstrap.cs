@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
+using VoxelValley.Core;
 
 namespace VoxelValley
 {
@@ -16,6 +17,11 @@ namespace VoxelValley
     {
         public const ushort Port = 7777;
         static readonly Color Sky = new Color(0.55f, 0.76f, 0.95f);
+        static readonly Color NightSky = new Color(0.04f, 0.06f, 0.14f);
+        static readonly Color Underwater = new Color(0.12f, 0.3f, 0.55f);
+        static readonly int DaylightId = Shader.PropertyToID("_Daylight");
+        NetworkWorld _chatSource;
+        float _fogStart, _fogEnd;
 
         public static GameBootstrap Instance { get; private set; }
 
@@ -25,12 +31,16 @@ namespace VoxelValley
         public Material VoxelMaterial;
         public Material ColorMaterial;
         public Material HighlightMaterial;
+        public Material WaterMaterial;
 
         public WorldView World { get; private set; }
         public Camera MainCamera { get; private set; }
         public Transform Highlight { get; private set; }
         public string LocalName { get; private set; } = "탐험가";
         public int LocalColor { get; private set; }
+
+        /// <summary>Host-only <c>-time 0..1</c> override for the starting time of day.</summary>
+        public float? StartTime { get; private set; }
 
         NetworkManager _net;
         UnityTransport _transport;
@@ -47,6 +57,8 @@ namespace VoxelValley
             bool touch = Application.isMobilePlatform || System.Environment.CommandLine.Contains("-touch");
 
             VoxelMaterial.mainTexture = TextureAtlas.Texture;
+            WaterMaterial.mainTexture = TextureAtlas.Texture;
+            Shader.SetGlobalFloat(DaylightId, 1f);
 
             var cam = new GameObject("Main Camera") { tag = "MainCamera" };
             MainCamera = cam.AddComponent<Camera>();
@@ -58,6 +70,7 @@ namespace VoxelValley
 
             World = new GameObject("World").AddComponent<WorldView>();
             World.Material = VoxelMaterial;
+            World.WaterMaterial = WaterMaterial;
             World.ViewRadius = touch ? 4 : 6;
             World.MeshesPerFrame = touch ? 2 : 4;
 
@@ -66,6 +79,8 @@ namespace VoxelValley
             RenderSettings.fogColor = Sky;
             RenderSettings.fogStartDistance = World.ViewRadius * 16 * 0.55f;
             RenderSettings.fogEndDistance = World.ViewRadius * 16 * 0.95f;
+            _fogStart = RenderSettings.fogStartDistance;
+            _fogEnd = RenderSettings.fogEndDistance;
 
             var hl = GameObject.CreatePrimitive(PrimitiveType.Cube);
             hl.name = "Highlight";
@@ -97,6 +112,8 @@ namespace VoxelValley
             _ui.HostRequested += Host;
             _ui.JoinRequested += Join;
             _ui.LeaveRequested += () => Leave(null);
+            _ui.ChatSubmitted += text => NetworkWorld.Instance?.SendChat(text);
+            _ui.ChatClosed += () => { if (!_ui.TouchUi && _inGame) LockCursor(true); };
 
             LocalColor = PlayerPrefs.GetInt("vv.color", Random.Range(0, PlayerAvatar.Palette.Length));
             PlayerPrefs.SetInt("vv.color", LocalColor);
@@ -116,6 +133,8 @@ namespace VoxelValley
                 return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
             }
             var name = Arg("-name");
+            if (float.TryParse(Arg("-time"), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var time)) StartTime = time;
             if (System.Array.IndexOf(args, "-host") >= 0) Host(name ?? "방장");
             else if (Arg("-join") is { } address) Join(name ?? "탐험가", address);
         }
@@ -190,15 +209,16 @@ namespace VoxelValley
 
         void Leave(string message)
         {
-            if (_net.IsServer && World.HasWorld) SaveSystem.Save(World.World);
+            if (_net.IsServer) SaveSystem.Save(NetworkWorld.Instance?.CaptureSave());
             _inGame = false;
             _joinTimeout = 0;
             _net.Shutdown();
             World.Clear();
             DetachCamera();
             Highlight.gameObject.SetActive(false);
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            LockCursor(false);
+            Shader.SetGlobalFloat(DaylightId, 1f);
+            MainCamera.backgroundColor = Sky;
             _ui.ShowMenu(message);
         }
 
@@ -245,7 +265,20 @@ namespace VoxelValley
                          local.GetComponent<PlayerController>().Spawned && World.IsReadyAt(local.transform.position);
             _ui.SetLoading(!ready);
 
+            UpdateSky(local);
+            if (NetworkWorld.Instance != _chatSource)
+            {
+                _chatSource = NetworkWorld.Instance;
+                if (_chatSource != null) _chatSource.ChatReceived += _ui.AddChat;
+            }
+
             string info = $"{NetworkPlayer.All.Count}명 접속 중";
+            if (NetworkWorld.Instance != null)
+            {
+                float t = NetworkWorld.Instance.TimeOfDay;
+                float hours = (t * 24f + 6f) % 24f; // 0 = 6 AM sunrise
+                info += $"   ·   {(DayCycle.IsNight(t) ? "밤" : "낮")} {(int)hours:00}:{(int)(hours % 1 * 60):00}";
+            }
             if (_net.IsServer)
                 info = (_hostAddresses.Count > 0 ? $"방 주소: {_hostAddresses[0]}" : "방 주소를 찾을 수 없어요") + "   ·   " + info;
             _ui.SetInfo(info);
@@ -258,36 +291,49 @@ namespace VoxelValley
                 if (_saveTimer > 30f)
                 {
                     _saveTimer = 0;
-                    SaveSystem.Save(World.World);
+                    SaveSystem.Save(NetworkWorld.Instance?.CaptureSave());
                 }
             }
         }
 
         void UpdateCursor()
         {
+            if (_ui.ChatOpen) return;
             var k = Keyboard.current;
             var m = Mouse.current;
-            if (k != null && k.escapeKey.wasPressedThisFrame)
-            {
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
-            }
+            if (k != null && k.escapeKey.wasPressedThisFrame) LockCursor(false);
             else if (m != null && m.leftButton.wasPressedThisFrame && !GameInput.CursorLocked &&
                      (EventSystem.current == null || !EventSystem.current.IsPointerOverGameObject()))
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-            }
+                LockCursor(true);
+        }
+
+        static void LockCursor(bool locked)
+        {
+            Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
+            Cursor.visible = !locked;
+        }
+
+        /// <summary>Day/night sky and light, and a murky blue fog under water.</summary>
+        void UpdateSky(NetworkPlayer local)
+        {
+            float daylight = NetworkWorld.Instance != null ? DayCycle.Daylight(NetworkWorld.Instance.TimeOfDay) : 1f;
+            Shader.SetGlobalFloat(DaylightId, daylight);
+            var sky = Color.Lerp(NightSky, Sky, Mathf.InverseLerp(0.22f, 1f, daylight));
+            bool underwater = local != null && World.IsWater(MainCamera.transform.position);
+            RenderSettings.fogColor = underwater ? Underwater * Mathf.Max(daylight, 0.4f) : sky;
+            RenderSettings.fogStartDistance = underwater ? 0f : _fogStart;
+            RenderSettings.fogEndDistance = underwater ? 14f : _fogEnd;
+            MainCamera.backgroundColor = RenderSettings.fogColor;
         }
 
         void OnApplicationPause(bool paused)
         {
-            if (paused && _net != null && _net.IsServer && World.HasWorld) SaveSystem.Save(World.World);
+            if (paused && _net != null && _net.IsServer) SaveSystem.Save(NetworkWorld.Instance?.CaptureSave());
         }
 
         void OnApplicationQuit()
         {
-            if (_net != null && _net.IsServer && World.HasWorld) SaveSystem.Save(World.World);
+            if (_net != null && _net.IsServer) SaveSystem.Save(NetworkWorld.Instance?.CaptureSave());
         }
     }
 }

@@ -11,11 +11,24 @@ namespace VoxelValley
         public event Action<string> HostRequested;
         public event Action<string, string> JoinRequested;
         public event Action LeaveRequested;
+        public event Action<string> ChatSubmitted;
+        public event Action ChatClosed;
 
         RectTransform _menu, _hud, _touch;
         InputField _name, _address;
         Text _status, _info, _blockName;
         Image[] _slots;
+        Text[] _counts;
+        RawImage[] _icons;
+        Text _chatLog;
+        RectTransform _chatBar;
+        InputField _chatInput;
+        readonly System.Collections.Generic.List<(string line, float time)> _chatLines =
+            new System.Collections.Generic.List<(string, float)>();
+
+        int _chatClosedFrame = -1;
+
+        public bool ChatOpen => _chatBar != null && _chatBar.gameObject.activeSelf;
         Image _fade;
 
         public bool TouchUi { get; private set; }
@@ -81,6 +94,8 @@ namespace VoxelValley
 
         public void ShowMenu(string message)
         {
+            if (_chatBar != null) _chatBar.gameObject.SetActive(false);
+            _chatLines.Clear();
             _menu.gameObject.SetActive(true);
             _hud.gameObject.SetActive(false);
             SetStatus(message);
@@ -118,6 +133,24 @@ namespace VoxelValley
 
             UiFactory.Place((RectTransform)UiFactory.Button(_hud, "나가기", new Color(0, 0, 0, 0.45f),
                 () => LeaveRequested?.Invoke(), 26).transform, new Vector2(1, 1), new Vector2(-24, -20), new Vector2(150, 64));
+            if (TouchUi)
+                UiFactory.Place((RectTransform)UiFactory.Button(_hud, "채팅", new Color(0, 0, 0, 0.45f),
+                    () => { if (ChatOpen) CloseChat(); else OpenChat(); }, 26).transform,
+                    new Vector2(1, 1), new Vector2(-190, -20), new Vector2(130, 64));
+
+            // Chat: recent lines under the info text, input bar near the top.
+            _chatLog = UiFactory.Label(_hud, "", 24, TextAnchor.UpperLeft);
+            _chatLog.gameObject.AddComponent<Shadow>();
+            _chatLog.supportRichText = true;
+            UiFactory.Place(_chatLog.rectTransform, new Vector2(0, 1), new Vector2(24, -90), new Vector2(760, 260));
+            _chatBar = UiFactory.Place(UiFactory.Empty(_hud, "ChatBar"), new Vector2(0.5f, 1), new Vector2(0, -96), new Vector2(820, 72));
+            _chatInput = UiFactory.Input(_chatBar, "메시지 입력 (Enter 보내기 · Esc 닫기)", "", 26);
+            _chatInput.characterLimit = ChatRules.MaxLength;
+            UiFactory.Place((RectTransform)_chatInput.transform, new Vector2(0, 0.5f), Vector2.zero, new Vector2(670, 68));
+            UiFactory.Place((RectTransform)UiFactory.Button(_chatBar, "보내기", new Color(0.24f, 0.47f, 0.75f),
+                SubmitChat, 26).transform, new Vector2(1, 0.5f), Vector2.zero, new Vector2(140, 68));
+            _chatInput.onSubmit.AddListener(_ => SubmitChat());
+            _chatBar.gameObject.SetActive(false);
 
             // Hotbar
             int n = Blocks.Placeable.Length;
@@ -125,6 +158,8 @@ namespace VoxelValley
             var bar = UiFactory.Place(UiFactory.Panel(_hud, "Hotbar", new Color(0, 0, 0, 0.35f)),
                 new Vector2(0.5f, 0), new Vector2(0, 16), new Vector2(n * (slot + gap) + gap, slot + 2 * gap));
             _slots = new Image[n];
+            _counts = new Text[n];
+            _icons = new RawImage[n];
             for (int i = 0; i < n; i++)
             {
                 int index = i;
@@ -140,6 +175,10 @@ namespace VoxelValley
                 raw.raycastTarget = false;
                 UiFactory.Place((RectTransform)icon.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(slot - 20, slot - 20));
                 _slots[i] = frame.GetComponent<Image>();
+                _icons[i] = raw;
+                _counts[i] = UiFactory.Label(frame, "", 24, TextAnchor.LowerRight);
+                _counts[i].gameObject.AddComponent<Outline>();
+                UiFactory.Place(_counts[i].rectTransform, new Vector2(1, 0), new Vector2(-6, 2), new Vector2(70, 30));
             }
             _blockName = UiFactory.Label(_hud, "", 26);
             _blockName.gameObject.AddComponent<Shadow>();
@@ -147,7 +186,7 @@ namespace VoxelValley
 
             if (!TouchUi)
             {
-                var help = UiFactory.Label(_hud, "WASD 이동 · Space 점프 · 좌클릭 캐기 · 우클릭 놓기 · 1~9/휠 블록 · Esc 마우스 해제", 22,
+                var help = UiFactory.Label(_hud, "WASD 이동 · Space 점프/수영 · 좌클릭 꾹 캐기 · 우클릭 놓기 · 1~9/휠 블록 · Enter 채팅 · Esc 마우스 해제", 22,
                     TextAnchor.LowerRight, new Color(1, 1, 1, 0.8f));
                 help.gameObject.AddComponent<Shadow>();
                 UiFactory.Place(help.rectTransform, new Vector2(1, 0), new Vector2(-20, 12), new Vector2(1100, 30));
@@ -196,6 +235,52 @@ namespace VoxelValley
 
         public void SetLoading(bool loading) => _fade.gameObject.SetActive(loading);
 
+        // ---------------------------------------------------------------- chat
+
+        public void OpenChat()
+        {
+            _chatBar.gameObject.SetActive(true);
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            _chatInput.text = "";
+            _chatInput.Select();
+            _chatInput.ActivateInputField();
+        }
+
+        public void CloseChat()
+        {
+            if (!ChatOpen) return;
+            _chatInput.DeactivateInputField();
+            _chatBar.gameObject.SetActive(false);
+            _chatClosedFrame = Time.frameCount;
+            ChatClosed?.Invoke();
+        }
+
+        void SubmitChat()
+        {
+            var text = ChatRules.Clean(_chatInput.text);
+            if (text.Length > 0) ChatSubmitted?.Invoke(text);
+            CloseChat();
+        }
+
+        public void AddChat(string name, string text)
+        {
+            _chatLines.Add(($"<b>{Escape(name)}</b>: {Escape(text)}", Time.unscaledTime));
+            if (_chatLines.Count > 6) _chatLines.RemoveAt(0);
+            RefreshChat();
+        }
+
+        static string Escape(string s) => s.Replace("<", "‹").Replace(">", "›");
+
+        void RefreshChat()
+        {
+            float now = Time.unscaledTime;
+            var sb = new System.Text.StringBuilder();
+            foreach (var (line, time) in _chatLines)
+                if (ChatOpen || now - time < 12f) sb.AppendLine(line);
+            _chatLog.text = sb.ToString();
+        }
+
         public void SetInfo(string text) => _info.text = text;
 
         void Update()
@@ -203,8 +288,26 @@ namespace VoxelValley
             if (_hud == null || !_hud.gameObject.activeSelf) return;
             for (int i = 0; i < _slots.Length; i++)
                 _slots[i].color = i == GameInput.SelectedSlot ? new Color(1, 1, 1, 0.75f) : new Color(1, 1, 1, 0.15f);
-            _blockName.text = Blocks.Get(GameInput.SelectedBlock).Name;
-            GameInput.GameplayFocused = !(_name.isFocused || _address.isFocused);
+            var inv = NetworkWorld.Instance != null ? NetworkWorld.Instance.LocalInventory : null;
+            for (int i = 0; i < _slots.Length; i++)
+            {
+                int count = inv?.Count(Blocks.Placeable[i]) ?? 0;
+                _counts[i].text = count > 0 ? count.ToString() : "";
+                _icons[i].color = count > 0 ? Color.white : new Color(1, 1, 1, 0.3f);
+            }
+            int selected = inv?.Count(GameInput.SelectedBlock) ?? 0;
+            _blockName.text = $"{Blocks.Get(GameInput.SelectedBlock).Name} ({selected})";
+            GameInput.GameplayFocused = !(_name.isFocused || _address.isFocused || ChatOpen);
+            RefreshChat();
+
+            var k = UnityEngine.InputSystem.Keyboard.current;
+            if (k != null && !TouchUi)
+            {
+                // The Enter that sent a message must not reopen the box in the same frame.
+                if (!ChatOpen && Time.frameCount != _chatClosedFrame &&
+                    (k.enterKey.wasPressedThisFrame || k.tKey.wasPressedThisFrame)) OpenChat();
+                else if (ChatOpen && k.escapeKey.wasPressedThisFrame) CloseChat();
+            }
         }
     }
 }

@@ -52,6 +52,8 @@ namespace VoxelValley
                 GameBootstrap.Instance.AttachCamera(this);
                 interactor.Camera = GameBootstrap.Instance.MainCamera;
                 interactor.Highlight = GameBootstrap.Instance.Highlight;
+                // The host's world is ready immediately; clients ask after downloading it.
+                if (NetworkWorld.Instance != null && NetworkWorld.Instance.Ready) NetworkWorld.Instance.RequestInventory();
             }
             else
             {

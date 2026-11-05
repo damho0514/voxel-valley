@@ -19,6 +19,7 @@ Shader "VoxelValley/Color"
             #pragma fragment frag
             #pragma multi_compile_fog
             #include "UnityCG.cginc"
+            float _Daylight; // set globally by the day/night cycle
 
             fixed4 _Color;
             float _Lit;
@@ -40,7 +41,7 @@ Shader "VoxelValley/Color"
             fixed4 frag (v2f i) : SV_Target
             {
                 fixed4 c = _Color;
-                c.rgb *= i.shade;
+                c.rgb *= i.shade * lerp(1, _Daylight, _Lit);
                 UNITY_APPLY_FOG(i.fogCoord, c);
                 return c;
             }

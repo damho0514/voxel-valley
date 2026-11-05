@@ -33,7 +33,7 @@ namespace VoxelValley
                 name = "VoxelAtlas",
             };
             var px = new Color32[SizePx * SizePx];
-            for (int t = 0; t < 12; t++) Paint((Tile)t, px);
+            for (int t = 0; t <= (int)Tile.Water; t++) Paint((Tile)t, px);
             tex.SetPixels32(px);
             tex.Apply(false, false);
             return tex;
@@ -121,6 +121,12 @@ namespace VoxelValley
                     bool glint = (x - y == 5 || x - y == 6) && x > 6 && x < 13;
                     if (frame) return new Color32(210, 236, 245, 255);
                     return glint ? new Color32(240, 250, 255, 255) : Clear;
+                }
+                case Tile.Water:
+                {
+                    bool ripple = (x + y * 2 + (int)(r * 3)) % 7 == 0;
+                    var c = ripple ? new Color32(150, 205, 245, 175) : new Color32(52, 120, 200, 165);
+                    return Shade(c, r, 0.06f);
                 }
                 case Tile.Bedrock:
                     return Shade(new Color32(60, 58, 64, 255), r, 0.45f);

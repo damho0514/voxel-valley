@@ -1,9 +1,9 @@
 namespace VoxelValley.Core
 {
-    /// <summary>Fills chunks with hills, beaches, rock and trees from a seed.</summary>
+    /// <summary>Fills chunks with hills, beaches, lakes, rock and trees from a seed.</summary>
     public sealed class TerrainGenerator
     {
-        public const int SeaLevel = 22;
+        public const int SeaLevel = 20;
         readonly Noise _noise;
         public readonly int Seed;
 
@@ -19,7 +19,7 @@ namespace VoxelValley.Core
             float hills = _noise.Fractal(x / 48f, z / 48f, 4);
             float mountains = _noise.Fractal(x / 160f, z / 160f, 2, 7);
             float m = mountains * mountains;
-            int h = 14 + (int)(hills * 18 + m * 26);
+            int h = (int)(hills * 30 + m * 26);
             return h < 1 ? 1 : (h > Chunk.Height - 10 ? Chunk.Height - 10 : h);
         }
 
@@ -32,6 +32,8 @@ namespace VoxelValley.Core
                 int wx = chunk.WorldX(lx), wz = chunk.WorldZ(lz);
                 int top = SurfaceHeight(wx, wz);
                 bool beach = top <= SeaLevel;
+                // Low ground floods up to sea level.
+                for (int y = top + 1; y <= SeaLevel; y++) chunk.Set(lx, y, lz, BlockId.Water);
                 for (int y = 0; y <= top; y++)
                 {
                     BlockId id;

@@ -37,12 +37,21 @@ namespace VoxelValley
             if (Head != null) Head.localRotation = Quaternion.Euler(_pitch, 0, 0);
 
             var input = GameInput.Move;
-            var move = (transform.right * input.x + transform.forward * input.y) * WalkSpeed;
+            bool swimming = world.IsWater(transform.position + Vector3.up * 0.6f);
+            var move = (transform.right * input.x + transform.forward * input.y) * WalkSpeed * (swimming ? 0.6f : 1f);
 
-            if (_cc.isGrounded && _vy < 0) _vy = -2f;
             bool jump = GameInput.ConsumeJumpTap() | GameInput.Jump;
-            if (_cc.isGrounded && jump) _vy = Mathf.Sqrt(JumpHeight * -2f * Gravity);
-            _vy += Gravity * Time.deltaTime;
+            if (swimming)
+            {
+                // Sink slowly; hold jump to swim up (and climb out at the shore).
+                _vy = jump ? 3.2f : Mathf.Max(_vy + Gravity * 0.15f * Time.deltaTime, -1.6f);
+            }
+            else
+            {
+                if (_cc.isGrounded && _vy < 0) _vy = -2f;
+                if (_cc.isGrounded && jump) _vy = Mathf.Sqrt(JumpHeight * -2f * Gravity);
+                _vy += Gravity * Time.deltaTime;
+            }
             _cc.Move((move + Vector3.up * _vy) * Time.deltaTime);
 
             if (transform.position.y < -20) _spawned = false; // fell out: respawn

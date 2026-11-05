@@ -5,38 +5,37 @@ using VoxelValley.Core;
 
 namespace VoxelValley
 {
-    /// <summary>Stores the host's world (seed + edits) on the device.</summary>
+    /// <summary>Stores the host's world (seed, time, edits, inventories) on the device.</summary>
     public static class SaveSystem
     {
-        static string PathName => System.IO.Path.Combine(Application.persistentDataPath, "world.dat");
+        static string PathName => Path.Combine(Application.persistentDataPath, "world.dat");
 
-        public static VoxelWorld LoadOrCreate()
+        public static WorldSave Load()
         {
             try
             {
                 if (File.Exists(PathName))
                 {
                     using var file = File.OpenRead(PathName);
-                    var edits = new WorldEdits();
-                    int seed = WorldEdits.Read(file, edits);
-                    Debug.Log($"[VoxelValley] Loaded world {seed} with {edits.Count} edits");
-                    return new VoxelWorld(seed, edits);
+                    var save = WorldSave.Read(file);
+                    Debug.Log($"[VoxelValley] Loaded world {save.Seed}: {save.Edits.Count} edits, {save.Inventories.Count} players");
+                    return save;
                 }
             }
             catch (Exception e)
             {
                 Debug.LogWarning($"[VoxelValley] Could not load save, starting fresh: {e.Message}");
             }
-            return new VoxelWorld(UnityEngine.Random.Range(1, int.MaxValue));
+            return new WorldSave { Seed = UnityEngine.Random.Range(1, int.MaxValue) };
         }
 
-        public static void Save(VoxelWorld world)
+        public static void Save(WorldSave save)
         {
-            if (world == null) return;
+            if (save == null) return;
             try
             {
                 var tmp = PathName + ".tmp";
-                using (var file = File.Create(tmp)) world.Edits.Write(file, world.Seed);
+                using (var file = File.Create(tmp)) save.Write(file);
                 if (File.Exists(PathName)) File.Delete(PathName);
                 File.Move(tmp, PathName);
             }
@@ -44,11 +43,6 @@ namespace VoxelValley
             {
                 Debug.LogWarning($"[VoxelValley] Save failed: {e.Message}");
             }
-        }
-
-        public static void Delete()
-        {
-            try { if (File.Exists(PathName)) File.Delete(PathName); } catch (Exception) { }
         }
     }
 }
