@@ -16,7 +16,23 @@ namespace VoxelValley.EditorTools
         public static void MacOS() => Build(BuildTarget.StandaloneOSX, "Build/macOS/VoxelValley.app");
 
         [MenuItem("Tools/Voxel Valley/Build iOS (Xcode project)")]
-        public static void IOS() => Build(BuildTarget.iOS, "Build/iOS");
+        public static void IOS()
+        {
+            PlayerSettings.iOS.sdkVersion = iOSSdkVersion.DeviceSDK;
+            PlayerSettings.iOS.appleEnableAutomaticSigning = true;
+            var team = Environment.GetEnvironmentVariable("IOS_TEAM_ID");
+            if (!string.IsNullOrEmpty(team)) PlayerSettings.iOS.appleDeveloperTeamID = team;
+            Build(BuildTarget.iOS, "Build/iOS");
+        }
+
+        [MenuItem("Tools/Voxel Valley/Build iOS Simulator (Xcode project)")]
+        public static void IOSSimulator()
+        {
+            PlayerSettings.iOS.sdkVersion = iOSSdkVersion.SimulatorSDK;
+            PlayerSettings.iOS.simulatorSdkArchitecture = AppleMobileArchitectureSimulator.ARM64; // Apple Silicon Macs
+            try { Build(BuildTarget.iOS, "Build/iOSSimulator"); }
+            finally { PlayerSettings.iOS.sdkVersion = iOSSdkVersion.DeviceSDK; }
+        }
 
         static void Build(BuildTarget target, string output)
         {
