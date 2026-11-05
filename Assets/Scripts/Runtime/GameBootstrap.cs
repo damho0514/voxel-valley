@@ -48,6 +48,8 @@ namespace VoxelValley
         bool _inGame;
         float _joinTimeout, _saveTimer;
         List<string> _hostAddresses = new List<string>();
+        string _joinCode;
+        bool _busy;
 
         void Awake()
         {
@@ -110,6 +112,7 @@ namespace VoxelValley
             _ui = new GameObject("UI").AddComponent<GameUi>();
             _ui.Build(touch, PlayerPrefs.GetString("vv.name", ""), PlayerPrefs.GetString("vv.address", ""));
             _ui.HostRequested += Host;
+            _ui.HostOnlineRequested += HostOnline;
             _ui.JoinRequested += Join;
             _ui.LeaveRequested += () => Leave(null);
             _ui.ChatSubmitted += text => NetworkWorld.Instance?.SendChat(text);
@@ -135,7 +138,8 @@ namespace VoxelValley
             var name = Arg("-name");
             if (float.TryParse(Arg("-time"), System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var time)) StartTime = time;
-            if (System.Array.IndexOf(args, "-host") >= 0) Host(name ?? "방장");
+            if (System.Array.IndexOf(args, "-host-online") >= 0) HostOnline(name ?? "방장");
+            else if (System.Array.IndexOf(args, "-host") >= 0) Host(name ?? "방장");
             else if (Arg("-join") is { } address) Join(name ?? "탐험가", address);
         }
 
@@ -143,6 +147,7 @@ namespace VoxelValley
 
         void Host(string name)
         {
+            _joinCode = null;
             Remember(name, null);
             _transport.SetConnectionData("127.0.0.1", Port, "0.0.0.0");
             if (!_net.StartHost())
@@ -154,14 +159,68 @@ namespace VoxelValley
             EnterGame();
         }
 
+        async void HostOnline(string name)
+        {
+            if (_busy) return;
+            _busy = true;
+            Remember(name, null);
+            _ui.SetStatus("온라인 방을 여는 중...");
+            try
+            {
+                _joinCode = await RelayConnector.HostAsync(_transport);
+            }
+            catch (System.Exception e)
+            {
+                _ui.SetStatus(RelayConnector.Explain(e));
+                _busy = false;
+                return;
+            }
+            _busy = false;
+            if (!_net.StartHost())
+            {
+                _ui.SetStatus("방을 만들 수 없어요.");
+                return;
+            }
+            EnterGame();
+        }
+
+        async void JoinOnline(string code)
+        {
+            if (_busy) return;
+            _busy = true;
+            _ui.SetStatus($"참가 코드 {code.ToUpperInvariant()} 로 연결 중...");
+            try
+            {
+                await RelayConnector.JoinAsync(_transport, code);
+            }
+            catch (System.Exception e)
+            {
+                _ui.SetStatus(RelayConnector.Explain(e));
+                _busy = false;
+                return;
+            }
+            _busy = false;
+            if (!_net.StartClient())
+            {
+                _ui.SetStatus("접속을 시작할 수 없어요.");
+                return;
+            }
+            _joinTimeout = 15f;
+        }
+
         void Join(string name, string address)
         {
             if (string.IsNullOrWhiteSpace(address))
             {
-                _ui.SetStatus("방 주소를 입력해 주세요.");
+                _ui.SetStatus("방 주소나 참가 코드를 입력해 주세요.");
                 return;
             }
             Remember(name, address);
+            if (RelayConnector.LooksLikeJoinCode(address))
+            {
+                JoinOnline(address.Trim());
+                return;
+            }
             _transport.SetConnectionData(address, Port);
             if (!_net.StartClient())
             {
@@ -212,6 +271,7 @@ namespace VoxelValley
             if (_net.IsServer) SaveSystem.Save(NetworkWorld.Instance?.CaptureSave());
             _inGame = false;
             _joinTimeout = 0;
+            _joinCode = null;
             _net.Shutdown();
             World.Clear();
             DetachCamera();
@@ -280,7 +340,8 @@ namespace VoxelValley
                 info += $"   ·   {(DayCycle.IsNight(t) ? "밤" : "낮")} {(int)hours:00}:{(int)(hours % 1 * 60):00}";
             }
             if (_net.IsServer)
-                info = (_hostAddresses.Count > 0 ? $"방 주소: {_hostAddresses[0]}" : "방 주소를 찾을 수 없어요") + "   ·   " + info;
+                info = (_joinCode != null ? $"참가 코드: {_joinCode}"
+                    : _hostAddresses.Count > 0 ? $"방 주소: {_hostAddresses[0]}" : "방 주소를 찾을 수 없어요") + "   ·   " + info;
             _ui.SetInfo(info);
 
             if (!_ui.TouchUi) UpdateCursor();

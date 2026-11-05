@@ -101,6 +101,7 @@ namespace VoxelValley
             var b = rect.gameObject.AddComponent<Button>();
             b.onClick.AddListener(() => onClick());
             var label = Label(rect, text, fontSize);
+            label.supportRichText = true;
             Stretch(label.rectTransform);
             return b;
         }

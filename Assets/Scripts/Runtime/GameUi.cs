@@ -9,6 +9,7 @@ namespace VoxelValley
     public sealed class GameUi : MonoBehaviour
     {
         public event Action<string> HostRequested;
+        public event Action<string> HostOnlineRequested;
         public event Action<string, string> JoinRequested;
         public event Action LeaveRequested;
         public event Action<string> ChatSubmitted;
@@ -70,12 +71,14 @@ namespace VoxelValley
             _name.characterLimit = 16;
             UiFactory.Place((RectTransform)_name.transform, new Vector2(0.5f, 1), new Vector2(0, -200), new Vector2(560, 76));
 
-            UiFactory.Place((RectTransform)UiFactory.Button(card, "방 만들기 (혼자 · 같이)", new Color(0.27f, 0.62f, 0.33f),
-                () => HostRequested?.Invoke(PlayerName())).transform, new Vector2(0.5f, 1), new Vector2(0, -300), new Vector2(560, 90));
+            UiFactory.Place((RectTransform)UiFactory.Button(card, "방 만들기\n<size=20>혼자 · 같은 와이파이</size>", new Color(0.27f, 0.62f, 0.33f),
+                () => HostRequested?.Invoke(PlayerName()), 28).transform, new Vector2(0.5f, 1), new Vector2(-142, -300), new Vector2(276, 96));
+            UiFactory.Place((RectTransform)UiFactory.Button(card, "온라인 방 만들기\n<size=20>참가 코드로 어디서나</size>", new Color(0.55f, 0.36f, 0.75f),
+                () => HostOnlineRequested?.Invoke(PlayerName()), 28).transform, new Vector2(0.5f, 1), new Vector2(142, -300), new Vector2(276, 96));
 
             UiFactory.Place(UiFactory.Label(card, "친구 방에 참가하기", 26, color: new Color(0.8f, 0.9f, 0.95f)).rectTransform,
                 new Vector2(0.5f, 1), new Vector2(0, -420), new Vector2(560, 36));
-            _address = UiFactory.Input(card, "방 주소 (예: 192.168.0.12)", savedAddress);
+            _address = UiFactory.Input(card, "방 주소 또는 참가 코드", savedAddress);
             _address.contentType = InputField.ContentType.Standard;
             UiFactory.Place((RectTransform)_address.transform, new Vector2(0.5f, 1), new Vector2(-95, -465), new Vector2(370, 76));
             UiFactory.Place((RectTransform)UiFactory.Button(card, "참가", new Color(0.24f, 0.47f, 0.75f),

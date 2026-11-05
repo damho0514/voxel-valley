@@ -50,7 +50,7 @@ $UNITY -batchmode -quit -projectPath . -executeMethod VoxelValley.EditorTools.Bu
 ## 명령줄 옵션 (데스크톱 빌드)
 
 ```bash
-"Build/macOS/VoxelValley.app/Contents/MacOS/Voxel Valley" -host -name 방장 [-time 0.75]   # 바로 방 만들기 (0=해뜰녘, 0.25=정오, 0.75=자정)
+"Build/macOS/VoxelValley.app/Contents/MacOS/Voxel Valley" -host -name 방장 [-time 0.75]   # 바로 방 만들기 (-host-online: 온라인 방) (0=해뜰녘, 0.25=정오, 0.75=자정)
 "Build/macOS/VoxelValley.app/Contents/MacOS/Voxel Valley" -join 192.168.0.12 -name 친구
 ```
 
@@ -58,7 +58,7 @@ $UNITY -batchmode -quit -projectPath . -executeMethod VoxelValley.EditorTools.Bu
 
 ## 같이 하기
 
-1. 한 명이 **방 만들기** → 화면 왼쪽 위에 `방 주소: 192.168.x.x`가 보여요.
-2. 같은 와이파이의 친구가 그 주소를 입력하고 **참가**.
-
-포트 UDP 7777을 사용해요. 다른 네트워크 간 접속은 아직 지원하지 않아요(릴레이 서버 필요).
+- **같은 와이파이**: 한 명이 **방 만들기** → 왼쪽 위 `방 주소: 192.168.x.x`를 친구가 입력하고 **참가** (UDP 7777).
+- **어디서나(온라인)**: **온라인 방 만들기** → 왼쪽 위 `참가 코드: ABC123`을 친구가 입력하고 **참가**.
+  Unity Relay를 사용하며, 프로젝트가 Unity Cloud 프로젝트에 연결돼 있어야 해요
+  (`ProjectSettings/ProjectSettings.asset`의 `cloudProjectId`·`organizationId`).
