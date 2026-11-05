@@ -1,6 +1,6 @@
 // Offline support: game files are cached on first visit so the home-screen
 // app opens without a connection. Each build gets its own cache.
-const CACHE = "voxel-valley-0.1.0-20261105151955";
+const CACHE = "voxel-valley-0.1.0-20261105152756";
 const CORE = [
   "./",
   "index.html",

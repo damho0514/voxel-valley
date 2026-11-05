@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Voxel Valley">
   <meta name="theme-color" content="#2b4552">
-  <meta name="build" content="20261105151955">
+  <meta name="build" content="20261105152756">
   <style>
     html, body { margin: 0; height: 100%; background: #2b4552; overflow: hidden; overscroll-behavior: none;
       touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
@@ -24,7 +24,13 @@
     #loading .name { font-size: 22px; font-weight: 700; }
     #bar { width: 220px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.15); overflow: hidden; }
     #fill { width: 0; height: 100%; background: #6fd08c; transition: width .2s; }
-    #msg { font-size: 14px; opacity: .8; text-align: center; padding: 0 24px; }
+    #msg { font-size: 15px; opacity: .9; text-align: center; padding: 0 24px; }
+    #retry { display: none; padding: 10px 22px; border: 0; border-radius: 10px; background: #6fd08c; color: #13232b; font-size: 15px; }
+    #inapp { position: fixed; inset: 0; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; padding: 24px; text-align: center; background: #2b4552; font-size: 16px; line-height: 1.6; }
+    #inapp a { display: inline-block; padding: 12px 22px; border-radius: 12px; background: #6fd08c; color: #13232b;
+      font-weight: 700; text-decoration: none; }
+    #inapp .url { font-size: 13px; opacity: .8; word-break: break-all; -webkit-user-select: text; user-select: text; }
     #install { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%);
       width: min(360px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px 18px; border-radius: 16px;
       background: #f7f9fa; color: #13232b; box-shadow: 0 10px 30px rgba(0,0,0,.35); z-index: 10; font-size: 15px; line-height: 1.5; }
@@ -53,7 +59,14 @@
     <img src="icons/icon-192.png" alt="">
     <div class="name">Voxel Valley</div>
     <div id="bar"><div id="fill"></div></div>
-    <div id="msg">게임을 불러오는 중...</div>
+    <div id="msg">게임을 받는 중... 0%</div>
+    <button id="retry">다시 시도</button>
+  </div>
+  <div id="inapp">
+    <div><b>Safari에서 열어 주세요</b><br>앱 안 브라우저에서는 설치와 게임이 제대로 동작하지 않아요.</div>
+    <a id="openSafari" href="#">Safari로 열기</a>
+    <div>안 열리면 오른쪽 아래(또는 위) <b>⋯ 메뉴 → Safari로 열기 / 다른 브라우저로 열기</b>를 눌러 주세요.</div>
+    <div class="url" id="url"></div>
   </div>
   <div id="install" hidden>
     <div class="row">
@@ -69,17 +82,39 @@
   <script>
     (function () {
       var ua = navigator.userAgent;
+      var here = location.href.split('#')[0];
+
+      // In-app browsers (KakaoTalk, Instagram, Facebook, LINE, NAVER, ...) can't
+      // add to the home screen and are flaky with WebGL: send people to Safari.
+      var inApp = /KAKAOTALK|Instagram|FBAN|FBAV|Line\/|NAVER|DaumApps|everytimeApp|; wv\)/i.test(ua);
+      if (/KAKAOTALK/i.test(ua)) {
+        location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(here);
+      }
+      if (inApp) {
+        var box = document.getElementById('inapp');
+        box.style.display = 'flex';
+        document.getElementById('url').textContent = here;
+        document.getElementById('openSafari').href = /KAKAOTALK/i.test(ua)
+          ? 'kakaotalk://web/openExternal?url=' + encodeURIComponent(here)
+          : 'x-safari-' + here;
+        document.getElementById('loading').style.display = 'none';
+        return; // don't start the game inside the in-app browser
+      }
       var iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       var installed = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches ||
         matchMedia('(display-mode: fullscreen)').matches;
       var dismissed = false;
       try { dismissed = localStorage.getItem('vv-install-later') === '1'; } catch (e) {}
       var install = document.getElementById('install');
-      if (iOS && !installed && !dismissed) install.hidden = false;
-      document.getElementById('later').onclick = function () {
+      var later = document.getElementById('later');
+      function closeInstall(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
         install.hidden = true;
-        try { localStorage.setItem('vv-install-later', '1'); } catch (e) {}
-      };
+        try { localStorage.setItem('vv-install-later', '1'); } catch (err) {}
+      }
+      // Touch/pointer handlers too: the game may swallow synthesized clicks.
+      ['click', 'touchend', 'pointerup'].forEach(function (t) { later.addEventListener(t, closeInstall, { passive: false }); });
+      function offerInstall() { if (iOS && !installed && !dismissed) install.hidden = false; }
 
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
@@ -88,6 +123,15 @@
       var canvas = document.getElementById('game');
       var fill = document.getElementById('fill');
       var msg = document.getElementById('msg');
+      var retry = document.getElementById('retry');
+      retry.addEventListener('click', function () { location.reload(); });
+      retry.addEventListener('touchend', function () { location.reload(); });
+      window.addEventListener('error', function (e) {
+        if (document.getElementById('loading')) {
+          msg.textContent = '문제가 생겼어요: ' + (e.message || e.error || '알 수 없는 오류');
+          retry.style.display = 'inline-block';
+        }
+      });
       var config = {
         dataUrl: "Build/WebGL.data.unityweb",
         frameworkUrl: "Build/WebGL.framework.js.unityweb",
@@ -100,15 +144,26 @@
       };
       var script = document.createElement('script');
       script.src = "Build/WebGL.loader.js";
+      script.onerror = function () {
+        msg.textContent = '게임 파일을 받지 못했어요. 인터넷 연결을 확인해 주세요.';
+        retry.style.display = 'inline-block';
+      };
       script.onload = function () {
-        createUnityInstance(canvas, config, function (p) { fill.style.width = Math.round(p * 100) + '%'; })
+        createUnityInstance(canvas, config, function (p) {
+          var pct = Math.round(p * 100);
+          fill.style.width = pct + '%';
+          msg.textContent = pct < 90 ? '게임을 받는 중... ' + pct + '%' : '준비 중...';
+        })
           .then(function () {
             var l = document.getElementById('loading');
             l.style.opacity = '0';
-            setTimeout(function () { l.remove(); }, 450);
+            setTimeout(function () { l.remove(); offerInstall(); }, 450);
             canvas.focus();
           })
-          .catch(function (e) { msg.textContent = '실행할 수 없어요: ' + e; });
+          .catch(function (e) {
+            msg.textContent = '실행할 수 없어요: ' + e;
+            retry.style.display = 'inline-block';
+          });
       };
       document.body.appendChild(script);
     })();
