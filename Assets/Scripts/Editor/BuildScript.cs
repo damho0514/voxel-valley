@@ -27,15 +27,17 @@ namespace VoxelValley.EditorTools
 
         /// <summary>
         /// Browser build for GitHub Pages: Brotli with JS decompression fallback
-        /// (Pages can't send Content-Encoding headers) and the PWA template so it
-        /// can be added to a phone's home screen.
+        /// (Pages can't send Content-Encoding headers) and our own template:
+        /// full-screen page, iOS home-screen install guide, offline cache.
         /// </summary>
         [MenuItem("Tools/Voxel Valley/Build WebGL")]
         public static void WebGL()
         {
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
             PlayerSettings.WebGL.decompressionFallback = true;
-            PlayerSettings.WebGL.template = "APPLICATION:PWA";
+            PlayerSettings.WebGL.template = "PROJECT:VoxelValley";
+            // New id per build so the service worker refreshes cached files.
+            PlayerSettings.SetTemplateCustomValue("BUILD_ID", DateTime.UtcNow.ToString("yyyyMMddHHmmss"));
             PlayerSettings.WebGL.dataCaching = true;
             Build(BuildTarget.WebGL, "Build/WebGL");
         }

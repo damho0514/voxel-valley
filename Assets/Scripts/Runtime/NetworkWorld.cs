@@ -59,6 +59,8 @@ namespace VoxelValley
                 _timeOffset.Value = GameBootstrap.Instance.StartTime ?? _save.TimeOfDay;
                 View.Initialize(new VoxelWorld(_save.Seed, _save.Edits));
                 Ready = true;
+                // The host's own player may have spawned before this object did.
+                if (NetworkPlayer.Local != null) RequestInventory();
             }
             else
             {

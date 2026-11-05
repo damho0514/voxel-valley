@@ -20,8 +20,12 @@
 ## 바로 플레이 (웹)
 
 **https://damho0514.github.io/voxel-valley/** — PC 브라우저, iPhone Safari, Android Chrome에서 바로 실행.
-iPhone은 Safari 공유 버튼 → **홈 화면에 추가**하면 앱처럼 쓸 수 있어요.
-웹에서는 **온라인 방(참가 코드)** 으로만 플레이해요(브라우저는 같은 와이파이용 UDP 연결을 못 써요).
+
+**iPhone에 앱처럼 설치(무료)**: Safari로 열면 뜨는 안내대로 공유 버튼 → **홈 화면에 추가**.
+전용 아이콘으로 전체 화면 실행되고, 게임 파일이 기기에 저장돼 **인터넷 없이도** 열려요(혼자 하기).
+진짜 앱스토어/TestFlight 설치는 유료 Apple Developer Program이 필요해요.
+
+웹에서는 **혼자 하기(오프라인)** 와 **온라인 방(참가 코드)** 으로 플레이해요(브라우저는 같은 와이파이용 UDP 연결을 못 써요).
 앱과 웹은 같은 온라인 방에 함께 들어올 수 있어요(Relay wss).
 
 ## 구조
@@ -31,7 +35,8 @@ iPhone은 Safari 공유 버튼 → **홈 화면에 추가**하면 앱처럼 쓸 
 | `Assets/Scripts/Core` | 엔진 독립 로직: 블록, 노이즈, 지형 생성, 청크 메쉬, 편집 기록·저장, 편집 규칙 |
 | `Assets/Scripts/Runtime` | Unity: 월드 스트리밍, 플레이어, 입력/터치, UI, 네트워크 |
 | `Assets/Scripts/Editor` | 프로젝트 설정·씬·프리팹 생성(`ProjectSetup`), 빌드(`BuildScript`) |
-| `Assets/Shaders` | 복셀/단색 셰이더 |
+| `Assets/Shaders` | 복셀/단색/물 셰이더 |
+| `Assets/WebGLTemplates/VoxelValley` | 웹 페이지: 전체 화면, iOS 설치 안내, 오프라인 캐시(서비스 워커), 아이콘(`tools/make_icons.py`로 생성) |
 | `Assets/Tests/EditMode` | Core 단위 테스트 |
 
 씬과 프리팹은 직접 편집하지 않고 `Tools > Voxel Valley > Setup Project`(또는 빌드 시 자동)로 생성해요.

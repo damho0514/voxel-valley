@@ -71,7 +71,10 @@ namespace VoxelValley
             _name.characterLimit = 16;
             UiFactory.Place((RectTransform)_name.transform, new Vector2(0.5f, 1), new Vector2(0, -200), new Vector2(560, 76));
 
-            UiFactory.Place((RectTransform)UiFactory.Button(card, "방 만들기\n<size=20>혼자 · 같은 와이파이</size>", new Color(0.27f, 0.62f, 0.33f),
+            var localLabel = RelayConnector.LanSupported
+                ? "방 만들기\n<size=20>혼자 · 같은 와이파이</size>"
+                : "혼자 하기\n<size=20>인터넷 없이</size>";
+            UiFactory.Place((RectTransform)UiFactory.Button(card, localLabel, new Color(0.27f, 0.62f, 0.33f),
                 () => HostRequested?.Invoke(PlayerName()), 28).transform, new Vector2(0.5f, 1), new Vector2(-142, -300), new Vector2(276, 96));
             UiFactory.Place((RectTransform)UiFactory.Button(card, "온라인 방 만들기\n<size=20>참가 코드로 어디서나</size>", new Color(0.55f, 0.36f, 0.75f),
                 () => HostOnlineRequested?.Invoke(PlayerName()), 28).transform, new Vector2(0.5f, 1), new Vector2(142, -300), new Vector2(276, 96));

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Unity.Netcode;
+using Unity.Netcode.Transports.SinglePlayer;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -44,6 +45,8 @@ namespace VoxelValley
 
         NetworkManager _net;
         UnityTransport _transport;
+        SinglePlayerTransport _solo;
+        bool _offline;
         GameUi _ui;
         bool _inGame;
         float _joinTimeout, _saveTimer;
@@ -97,6 +100,7 @@ namespace VoxelValley
 
             var netGo = new GameObject("Network");
             _transport = netGo.AddComponent<UnityTransport>();
+            _solo = netGo.AddComponent<SinglePlayerTransport>();
             _net = netGo.AddComponent<NetworkManager>();
             // Only filled in automatically when the component is added in the editor.
             _net.NetworkConfig ??= new NetworkConfig();
@@ -145,15 +149,36 @@ namespace VoxelValley
 
         // ------------------------------------------------------------- session
 
+        /// <summary>Plays alone with no network at all (the web build's "혼자 하기").</summary>
+        void PlaySolo(string name)
+        {
+            _joinCode = null;
+            Remember(name, null);
+            UseTransport(offline: true);
+            if (!_net.StartHost())
+            {
+                _ui.SetStatus("게임을 시작할 수 없어요.");
+                return;
+            }
+            EnterGame();
+        }
+
+        void UseTransport(bool offline)
+        {
+            _offline = offline;
+            _net.NetworkConfig.NetworkTransport = offline ? _solo : _transport;
+        }
+
         void Host(string name)
         {
             if (!RelayConnector.LanSupported)
             {
-                _ui.SetStatus("웹 버전은 '온라인 방 만들기'로 플레이해 주세요.");
+                PlaySolo(name);
                 return;
             }
             _joinCode = null;
             Remember(name, null);
+            UseTransport(offline: false);
             _transport.UseWebSockets = false;
             _transport.SetConnectionData("127.0.0.1", Port, "0.0.0.0");
             if (!_net.StartHost())
@@ -171,6 +196,7 @@ namespace VoxelValley
             _busy = true;
             Remember(name, null);
             _ui.SetStatus("온라인 방을 여는 중...");
+            UseTransport(offline: false);
             try
             {
                 _joinCode = await RelayConnector.HostAsync(_transport);
@@ -196,6 +222,7 @@ namespace VoxelValley
             if (_busy) return;
             _busy = true;
             _ui.SetStatus($"참가 코드 {code.ToUpperInvariant()} 로 연결 중...");
+            UseTransport(offline: false);
             try
             {
                 await RelayConnector.JoinAsync(_transport, code);
@@ -233,6 +260,7 @@ namespace VoxelValley
                 _ui.SetStatus("웹 버전은 6자리 참가 코드로만 참가할 수 있어요.");
                 return;
             }
+            UseTransport(offline: false);
             _transport.UseWebSockets = false;
             _transport.SetConnectionData(address, Port);
             if (!_net.StartClient())
@@ -352,7 +380,8 @@ namespace VoxelValley
                 float hours = (t * 24f + 6f) % 24f; // 0 = 6 AM sunrise
                 info += $"   ·   {(DayCycle.IsNight(t) ? "밤" : "낮")} {(int)hours:00}:{(int)(hours % 1 * 60):00}";
             }
-            if (_net.IsServer)
+            if (_offline) info = "혼자 하는 중 (오프라인)";
+            else if (_net.IsServer)
                 info = (_joinCode != null ? $"참가 코드: {_joinCode}"
                     : _hostAddresses.Count > 0 ? $"방 주소: {_hostAddresses[0]}" : "방 주소를 찾을 수 없어요") + "   ·   " + info;
             _ui.SetInfo(info);

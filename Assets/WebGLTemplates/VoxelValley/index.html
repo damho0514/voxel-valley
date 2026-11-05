@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>{{{ PRODUCT_NAME }}}</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Voxel Valley">
+  <meta name="theme-color" content="#2b4552">
+  <meta name="build" content="{{{ BUILD_ID }}}">
+  <style>
+    html, body { margin: 0; height: 100%; background: #2b4552; overflow: hidden; overscroll-behavior: none;
+      touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+      font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; color: #fff; }
+    #game { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; outline: none; }
+    #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; background: #2b4552; transition: opacity .4s; }
+    #loading img { width: 96px; height: 96px; border-radius: 22px; }
+    #loading .name { font-size: 22px; font-weight: 700; }
+    #bar { width: 220px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.15); overflow: hidden; }
+    #fill { width: 0; height: 100%; background: #6fd08c; transition: width .2s; }
+    #msg { font-size: 14px; opacity: .8; text-align: center; padding: 0 24px; }
+    #install { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+      width: min(360px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px 18px; border-radius: 16px;
+      background: #f7f9fa; color: #13232b; box-shadow: 0 10px 30px rgba(0,0,0,.35); z-index: 10; font-size: 15px; line-height: 1.5; }
+    #install[hidden] { display: none; }
+    #install b { color: #0b5cad; }
+    #install .row { display: flex; align-items: center; gap: 12px; }
+    #install img { width: 52px; height: 52px; border-radius: 12px; flex: none; }
+    #install ol { margin: 10px 0 0; padding-left: 20px; }
+    #install button { margin-top: 12px; width: 100%; padding: 10px; border: 0; border-radius: 10px; background: #dfe7eb;
+      font-size: 15px; color: #13232b; }
+    #install::after { content: ""; position: absolute; left: 50%; bottom: -9px; margin-left: -9px;
+      border: 9px solid transparent; border-bottom: 0; border-top-color: #f7f9fa; }
+    /* Landscape: Safari's share button isn't at the bottom, and space is tight. */
+    @media (orientation: landscape) {
+      #install { bottom: 10px; padding: 12px 16px; font-size: 13px; width: min(420px, calc(100vw - 32px)); }
+      #install img { width: 40px; height: 40px; }
+      #install ol { margin-top: 6px; }
+      #install button { margin-top: 8px; padding: 8px; }
+      #install::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" tabindex="-1"></canvas>
+  <div id="loading">
+    <img src="icons/icon-192.png" alt="">
+    <div class="name">Voxel Valley</div>
+    <div id="bar"><div id="fill"></div></div>
+    <div id="msg">게임을 불러오는 중...</div>
+  </div>
+  <div id="install" hidden>
+    <div class="row">
+      <img src="icons/icon-180.png" alt="">
+      <div><b>앱으로 설치하기</b><br>홈 화면에 추가하면 아이콘으로 바로 실행되고, 인터넷 없이도 열려요.</div>
+    </div>
+    <ol>
+      <li>Safari의 <b>공유 버튼</b>(네모에 화살표)을 눌러요</li>
+      <li><b>홈 화면에 추가</b>를 누르고 <b>추가</b></li>
+    </ol>
+    <button id="later">나중에</button>
+  </div>
+  <script>
+    (function () {
+      var ua = navigator.userAgent;
+      var iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var installed = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches ||
+        matchMedia('(display-mode: fullscreen)').matches;
+      var dismissed = false;
+      try { dismissed = localStorage.getItem('vv-install-later') === '1'; } catch (e) {}
+      var install = document.getElementById('install');
+      if (iOS && !installed && !dismissed) install.hidden = false;
+      document.getElementById('later').onclick = function () {
+        install.hidden = true;
+        try { localStorage.setItem('vv-install-later', '1'); } catch (e) {}
+      };
+
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+      }
+
+      var canvas = document.getElementById('game');
+      var fill = document.getElementById('fill');
+      var msg = document.getElementById('msg');
+      var config = {
+        dataUrl: "Build/{{{ DATA_FILENAME }}}",
+        frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",
+        codeUrl: "Build/{{{ CODE_FILENAME }}}",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+        productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+        productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      };
+      var script = document.createElement('script');
+      script.src = "Build/{{{ LOADER_FILENAME }}}";
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (p) { fill.style.width = Math.round(p * 100) + '%'; })
+          .then(function () {
+            var l = document.getElementById('loading');
+            l.style.opacity = '0';
+            setTimeout(function () { l.remove(); }, 450);
+            canvas.focus();
+          })
+          .catch(function (e) { msg.textContent = '실행할 수 없어요: ' + e; });
+      };
+      document.body.appendChild(script);
+    })();
+  </script>
+</body>
+</html>
