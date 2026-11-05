@@ -1,0 +1,12 @@
+{
+  "name": "VoxelValley.Editor",
+  "rootNamespace": "VoxelValley.EditorTools",
+  "references": [
+    "VoxelValley.Core",
+    "VoxelValley.Runtime",
+    "Unity.Netcode.Runtime",
+    "Unity.Networking.Transport"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false
+}

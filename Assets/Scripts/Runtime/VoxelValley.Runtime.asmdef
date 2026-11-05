@@ -1,0 +1,13 @@
+{
+  "name": "VoxelValley.Runtime",
+  "rootNamespace": "VoxelValley",
+  "references": [
+    "VoxelValley.Core",
+    "Unity.Netcode.Runtime",
+    "Unity.Networking.Transport",
+    "Unity.InputSystem",
+    "Unity.Collections",
+    "UnityEngine.UI"
+  ],
+  "autoReferenced": true
+}

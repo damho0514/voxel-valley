@@ -1,0 +1,7 @@
+{
+  "name": "VoxelValley.Core",
+  "rootNamespace": "VoxelValley.Core",
+  "references": [],
+  "noEngineReferences": true,
+  "autoReferenced": true
+}
