@@ -503,7 +503,7 @@ PlayerSettings:
   openGLRequireES31AEP: 0
   openGLRequireES32: 0
   m_TemplateCustomTags:
-    BUILD_ID: 20261105151955
+    BUILD_ID: 20261105152756
   mobileMTRendering:
     Android: 1
     VisionOS: 1
