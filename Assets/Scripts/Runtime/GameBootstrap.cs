@@ -168,6 +168,7 @@ namespace VoxelValley
             try
             {
                 _joinCode = await RelayConnector.HostAsync(_transport);
+                Debug.Log($"[VoxelValley] Online room join code: {_joinCode}");
             }
             catch (System.Exception e)
             {
