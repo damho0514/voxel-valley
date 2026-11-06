@@ -1,4 +1,4 @@
-import { Block, BLOCKS, isReplaceable, PLACEABLE } from './blocks';
+import { Block, BLOCKS, isReplaceable, paletteFor } from './blocks';
 import { Body, collides, EYE_HEIGHT, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
 import { Hit, raycast } from './raycast';
 import { Save } from './storage';
@@ -21,6 +21,8 @@ export type Input = {
   placeTap: boolean; // consumed once per press
 };
 
+export type SoundName = 'dig' | 'break' | 'place' | 'step' | 'jump' | 'splash';
+
 export type HudState = {
   selected: number;
   dig: number; // 0..1
@@ -36,19 +38,27 @@ export class Game {
   pitch = 0;
   selected = 0;
   target: Hit | null = null;
+  /** Aim along this direction instead of the crosshair (a finger on a block). */
+  aimRay: { x: number; y: number; z: number } | null = null;
+  readonly palette: Block[];
   time = 0.08; // 0 sunrise, 0.25 noon, 0.75 midnight
   private digProgress = 0;
   private digKey = '';
   private spawned = false;
+  private stride = 0; // distance walked since the last footstep
+  private digSoundAt = 0;
+  private wasInWater = false;
   dirty = false; // something worth saving changed
 
   /** Called with (x, z) whenever a block changes so the renderer can rebuild. */
   onBlockChanged: (x: number, z: number) => void = () => {};
   /** Called when this player digs or places a block (for sending to a shared room). */
   onEdit: (x: number, y: number, z: number, b: Block) => void = () => {};
+  onSound: (s: SoundName) => void = () => {};
 
   constructor(save: Save | null) {
-    this.world = new World(save?.seed ?? Math.floor(Math.random() * 2 ** 31));
+    this.world = new World(save?.seed ?? Math.floor(Math.random() * 2 ** 31), save?.season ?? 'summer');
+    this.palette = paletteFor(this.world.season);
     for (const [key, b] of save?.edits ?? []) this.world.edits.set(key, b);
     const p = save?.pos ?? this.world.findSpawn(0, 0);
     this.body = { x: p[0], y: p[1], z: p[2], vy: 0, onGround: false };
@@ -56,7 +66,7 @@ export class Game {
   }
 
   get selectedBlock(): Block {
-    return PLACEABLE[this.selected];
+    return this.palette[this.selected];
   }
 
   get daylight() {
@@ -95,13 +105,27 @@ export class Game {
     const mx = (input.moveX * cos - input.moveY * sin) * speed * dt;
     const mz = (-input.moveX * sin - input.moveY * cos) * speed * dt;
 
+    const fallSpeed = -this.body.vy;
     if (swim) {
       this.body.vy = input.jump ? 3.2 : Math.max(this.body.vy + GRAVITY * 0.15 * dt, -1.6);
     } else {
-      if (this.body.onGround && input.jump) this.body.vy = JUMP_SPEED;
+      if (this.body.onGround && input.jump) {
+        this.body.vy = JUMP_SPEED;
+        this.onSound('jump');
+      }
       this.body.vy += GRAVITY * dt;
     }
+    const bx = this.body.x, bz = this.body.z;
     move(this.world, this.body, mx, this.body.vy * dt, mz);
+    if (this.body.onGround && !swim) {
+      this.stride += Math.hypot(this.body.x - bx, this.body.z - bz);
+      if (this.stride > 1.7) {
+        this.stride = 0;
+        this.onSound('step');
+      }
+    }
+    if (swim && !this.wasInWater && fallSpeed > 3) this.onSound('splash');
+    this.wasInWater = swim;
     if (this.body.y < -10) this.spawned = false; // fell out of the world: respawn
 
     this.aim();
@@ -110,7 +134,7 @@ export class Game {
   }
 
   private aim() {
-    const e = this.eye(), d = this.lookDir();
+    const e = this.eye(), d = this.aimRay ?? this.lookDir();
     this.target = raycast(this.world, e.x, e.y, e.z, d.x, d.y, d.z, REACH);
   }
 
@@ -125,7 +149,13 @@ export class Game {
     const info = BLOCKS[this.world.get(t.x, t.y, t.z)];
     if (!info.breakable) return;
     this.digProgress += dt / Math.max(0.05, info.hardness);
+    this.digSoundAt -= dt;
+    if (this.digSoundAt <= 0) {
+      this.digSoundAt = 0.22;
+      this.onSound('dig');
+    }
     if (this.digProgress >= 1) {
+      this.onSound('break');
       this.world.set(t.x, t.y, t.z, Block.Air);
       this.digProgress = 0;
       this.dirty = true;
@@ -156,6 +186,7 @@ export class Game {
       return;
     }
     this.dirty = true;
+    this.onSound('place');
     this.onBlockChanged(x, z);
     this.onEdit(x, y, z, b);
   }
@@ -188,6 +219,7 @@ export class Game {
   toSave(): Save {
     return {
       seed: this.world.seed,
+      season: this.world.season,
       edits: [...this.world.edits.entries()],
       pos: [this.body.x, this.body.y, this.body.z],
     };

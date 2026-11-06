@@ -1,4 +1,4 @@
-import { CODE_ALPHABET, CODE_LENGTH, PlayerInfo, ServerMsg } from '../../server/src/protocol';
+import { CODE_ALPHABET, CODE_LENGTH, PlayerInfo, SeasonName, ServerMsg } from '../../server/src/protocol';
 
 export { isRoomCode } from '../../server/src/protocol';
 export type { PlayerInfo } from '../../server/src/protocol';
@@ -10,7 +10,7 @@ export const newRoomCode = () =>
   Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
 
 export type Hello =
-  | { t: 'create'; name: string; color: number; seed: number; edits: [string, number][] }
+  | { t: 'create'; name: string; color: number; seed: number; season: SeasonName; edits: [string, number][] }
   | { t: 'join'; name: string; color: number };
 
 export type Welcome = Extract<ServerMsg, { t: 'welcome' }>;

@@ -3,20 +3,22 @@
 
 export const MAX_PLAYERS = 8;
 export const WORLD_HEIGHT = 48;
-export const BLOCK_TYPES = 12; // Block enum size in src/game/blocks.ts
+export const BLOCK_TYPES = 17; // BLOCK_COUNT in src/game/blocks.ts
+export const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'] as const;
+export type SeasonName = (typeof SEASON_NAMES)[number];
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 5;
 
 export type PlayerInfo = { id: string; name: string; color: number; x: number; y: number; z: number; yaw: number };
 
 export type ClientMsg =
-  | { t: 'create'; name: string; color: number; seed: number; edits: [string, number][] }
+  | { t: 'create'; name: string; color: number; seed: number; season: SeasonName; edits: [string, number][] }
   | { t: 'join'; name: string; color: number }
   | { t: 'pos'; x: number; y: number; z: number; yaw: number }
   | { t: 'set'; x: number; y: number; z: number; b: number };
 
 export type ServerMsg =
-  | { t: 'welcome'; id: string; seed: number; edits: [string, number][]; players: PlayerInfo[] }
+  | { t: 'welcome'; id: string; seed: number; season: SeasonName; edits: [string, number][]; players: PlayerInfo[] }
   | { t: 'joined'; player: PlayerInfo }
   | { t: 'left'; id: string }
   | { t: 'pos'; id: string; x: number; y: number; z: number; yaw: number }
@@ -55,7 +57,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'create':
       if (!isSeed(m.seed) || !Array.isArray(m.edits) || !isColor(m.color)) return null;
       if (!m.edits.every((e) => Array.isArray(e) && isEditKey(e[0]) && isBlock(e[1]))) return null;
-      return { t: 'create', name: cleanName(m.name), color: m.color, seed: m.seed, edits: m.edits as [string, number][] };
+      if (!SEASON_NAMES.includes(m.season as SeasonName)) return null;
+      return { t: 'create', name: cleanName(m.name), color: m.color, seed: m.seed, season: m.season as SeasonName, edits: m.edits as [string, number][] };
     case 'join':
       if (!isColor(m.color)) return null;
       return { t: 'join', name: cleanName(m.name), color: m.color };

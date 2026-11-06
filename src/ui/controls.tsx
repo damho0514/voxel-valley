@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 
@@ -32,12 +32,51 @@ export function Joystick({ onMove }: { onMove: (x: number, y: number) => void })
   );
 }
 
-/** Drag anywhere on this area to look around. */
-export function LookPad({ onLook, style }: { onLook: (dx: number, dy: number) => void; style: ViewStyle }) {
+const TAP_SLOP = 12; // px a finger may wander and still count as a tap/hold
+const HOLD_MS = 260;
+
+/**
+ * The play area. Drag to look around; tap a block to place onto it; press and hold a block
+ * to dig it (move the held finger to dig the next one). Positions are absolute screen points.
+ */
+export function TouchPad({ onLook, onTap, onHold, style }: {
+  onLook: (dx: number, dy: number) => void;
+  onTap: (x: number, y: number) => void;
+  onHold: (pos: { x: number; y: number } | null) => void;
+  style: ViewStyle;
+}) {
+  const t = useRef({ startX: 0, startY: 0, x: 0, y: 0, at: 0, mode: 'pending' as 'pending' | 'look' | 'hold', timer: null as ReturnType<typeof setTimeout> | null });
   const pan = usePanGesture({
     minDistance: 0,
     runOnJS: true,
-    onUpdate: (e) => onLook(e.changeX, e.changeY),
+    onBegin: (e) => {
+      const s = t.current;
+      Object.assign(s, { startX: e.absoluteX, startY: e.absoluteY, x: e.absoluteX, y: e.absoluteY, at: Date.now(), mode: 'pending' });
+      if (s.timer) clearTimeout(s.timer);
+      s.timer = setTimeout(() => {
+        if (s.mode !== 'pending') return;
+        s.mode = 'hold';
+        onHold({ x: s.x, y: s.y });
+      }, HOLD_MS);
+    },
+    onUpdate: (e) => {
+      const s = t.current;
+      s.x = e.absoluteX;
+      s.y = e.absoluteY;
+      if (s.mode === 'pending' && Math.hypot(s.x - s.startX, s.y - s.startY) > TAP_SLOP) {
+        s.mode = 'look';
+        if (s.timer) clearTimeout(s.timer);
+      }
+      if (s.mode === 'look') onLook(e.changeX, e.changeY);
+      else if (s.mode === 'hold') onHold({ x: s.x, y: s.y });
+    },
+    onFinalize: () => {
+      const s = t.current;
+      if (s.timer) clearTimeout(s.timer);
+      if (s.mode === 'pending' && Date.now() - s.at < HOLD_MS + 40) onTap(s.x, s.y);
+      if (s.mode === 'hold') onHold(null);
+      s.mode = 'pending';
+    },
   });
   return (
     <GestureDetector gesture={pan}>

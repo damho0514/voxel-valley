@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ExpoWebGLRenderingContext } from 'expo-gl';
 import { Platform } from 'react-native';
+import type { Season } from '../game/blocks';
 import { buildChunkMesh, MeshArrays } from '../game/mesher';
 import { CHUNK, chunkKey, toChunk, World } from '../game/world';
 
@@ -10,8 +11,17 @@ export type Avatar = { id: string; color: number; x: number; y: number; z: numbe
 // Colours in this game are authored as plain sRGB values and shown as-is.
 THREE.ColorManagement.enabled = false;
 
-const SKY_DAY = new THREE.Color(0xbfe3f5);
 const SKY_NIGHT = new THREE.Color(0x1b2140);
+const SKY: Record<Season, number> = { spring: 0xd4e8f6, summer: 0xaedcf4, autumn: 0xf0dcc0, winter: 0xdfe8ef };
+
+/** Falling petals / leaves / snow per season (summer stays clear). */
+const WEATHER: Record<Season, { color: number; size: number; fall: number; sway: number; count: number } | null> = {
+  spring: { color: 0xf7b6cf, size: 0.16, fall: 0.9, sway: 0.8, count: 260 },
+  summer: null,
+  autumn: { color: 0xe8894a, size: 0.18, fall: 1.2, sway: 1.0, count: 200 },
+  winter: { color: 0xffffff, size: 0.12, fall: 1.6, sway: 0.4, count: 520 },
+};
+const WEATHER_BOX = 22; // particles live in a box this wide around the camera
 
 function geometryOf(a: MeshArrays) {
   const g = new THREE.BufferGeometry();
@@ -54,6 +64,9 @@ export class VoxelRenderer {
     visor: new THREE.BoxGeometry(0.46, 0.18, 0.04),
   };
   private daylight = 1;
+  private skyDay = new THREE.Color(SKY.summer);
+  private weather: { points: THREE.Points; pos: Float32Array; phase: Float32Array; spec: NonNullable<(typeof WEATHER)[Season]> } | null = null;
+  private clock = 0;
   viewRadius = 3;
 
   constructor(private readonly gl: ExpoWebGLRenderingContext, private readonly world: World) {
@@ -67,11 +80,11 @@ export class VoxelRenderer {
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(w, h, false);
-    this.renderer.setClearColor(SKY_DAY);
+    this.renderer.setClearColor(this.skyDay);
 
     this.camera = new THREE.PerspectiveCamera(72, w / h, 0.05, 140);
     this.camera.rotation.order = 'YXZ';
-    this.scene.fog = new THREE.Fog(SKY_DAY, 28, 46);
+    this.scene.fog = new THREE.Fog(this.skyDay, 28, 46);
 
     this.highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(1.01, 1.01, 1.01)),
@@ -92,9 +105,58 @@ export class VoxelRenderer {
     if (x !== null) this.highlight.position.set(x + 0.5, y + 0.5, z + 0.5);
   }
 
+  /** Direction from the camera through a point on screen (-1..1 each way, y up). */
+  rayFromScreen(nx: number, ny: number) {
+    this.camera.updateMatrixWorld();
+    const v = new THREE.Vector3(nx, ny, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
+    return { x: v.x, y: v.y, z: v.z };
+  }
+
+  /** Sky tint and falling particles for the world's season. */
+  setSeason(season: Season) {
+    this.skyDay = new THREE.Color(SKY[season]);
+    if (this.weather) {
+      this.scene.remove(this.weather.points);
+      this.weather.points.geometry.dispose();
+      this.weather = null;
+    }
+    const spec = WEATHER[season];
+    if (!spec) return;
+    const pos = new Float32Array(spec.count * 3), phase = new Float32Array(spec.count);
+    for (let i = 0; i < spec.count; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * WEATHER_BOX;
+      pos[i * 3 + 1] = Math.random() * WEATHER_BOX;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * WEATHER_BOX;
+      phase[i] = Math.random() * Math.PI * 2;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const points = new THREE.Points(geo, new THREE.PointsMaterial({ color: spec.color, size: spec.size, transparent: true, opacity: 0.9, depthWrite: false }));
+    points.frustumCulled = false;
+    this.scene.add(points);
+    this.weather = { points, pos, phase, spec };
+  }
+
+  /** Drifts the weather particles; they wrap around a box that follows the camera. */
+  private updateWeather(dt: number) {
+    const w = this.weather;
+    if (!w) return;
+    this.clock += dt;
+    const c = this.camera.position, half = WEATHER_BOX / 2;
+    const wrap = (v: number, center: number) => center + ((((v - center + half) % WEATHER_BOX) + WEATHER_BOX) % WEATHER_BOX) - half;
+    for (let i = 0; i < w.phase.length; i++) {
+      const j = i * 3, p = w.phase[i];
+      w.pos[j] = wrap(w.pos[j] + Math.sin(this.clock * 0.9 + p) * w.spec.sway * dt, c.x);
+      w.pos[j + 1] = wrap(w.pos[j + 1] - w.spec.fall * (0.7 + 0.3 * Math.sin(p)) * dt, c.y + 4);
+      w.pos[j + 2] = wrap(w.pos[j + 2] + Math.cos(this.clock * 0.7 + p) * w.spec.sway * 0.6 * dt, c.z);
+    }
+    (w.points.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (w.points.material as THREE.PointsMaterial).color.setHex(w.spec.color).multiplyScalar(this.daylight);
+  }
+
   /** 0..1 daylight tints the sky, fog and every block. */
   setDaylight(d: number) {
-    const sky = SKY_NIGHT.clone().lerp(SKY_DAY, d);
+    const sky = SKY_NIGHT.clone().lerp(this.skyDay, d);
     this.renderer.setClearColor(sky);
     (this.scene.fog as THREE.Fog).color.copy(sky);
     const k = 0.3 + 0.7 * d;
@@ -219,7 +281,8 @@ export class VoxelRenderer {
     }
   }
 
-  render() {
+  render(dt = 0) {
+    this.updateWeather(Math.min(dt, 0.1));
     this.renderer.render(this.scene, this.camera);
     this.gl.endFrameEXP();
   }

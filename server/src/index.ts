@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { isRoomCode, MAX_PLAYERS, parseClientMsg, PlayerInfo, ServerMsg } from './protocol';
+import { isRoomCode, MAX_PLAYERS, parseClientMsg, PlayerInfo, SeasonName, ServerMsg } from './protocol';
 
 type Env = { ROOMS: DurableObjectNamespace<Room> };
 
@@ -24,12 +24,14 @@ export default {
  */
 export class Room extends DurableObject<Env> {
   private seed: number | null = null;
+  private season: SeasonName = 'summer';
   private edits = new Map<string, number>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
       this.seed = (await ctx.storage.get<number>('seed')) ?? null;
+      this.season = (await ctx.storage.get<SeasonName>('season')) ?? 'summer';
       for (const [k, b] of await ctx.storage.list<number>({ prefix: 'e:' })) this.edits.set(k.slice(2), b);
     });
   }
@@ -91,8 +93,9 @@ export class Room extends DurableObject<Env> {
           return;
         }
         this.seed = msg.seed;
+        this.season = msg.season;
         for (const [k, b] of msg.edits) this.edits.set(k, b);
-        await this.ctx.storage.put('seed', msg.seed);
+        await this.ctx.storage.put({ seed: msg.seed, season: msg.season });
         await this.saveEdits(msg.edits);
       }
       if (this.players().length >= MAX_PLAYERS) {
@@ -103,7 +106,7 @@ export class Room extends DurableObject<Env> {
       const info: PlayerInfo = { id: crypto.randomUUID().slice(0, 8), name: msg.name, color: msg.color, x: 0, y: -100, z: 0, yaw: 0 };
       const others = this.players().map((p) => p.info);
       ws.serializeAttachment(info);
-      this.send(ws, { t: 'welcome', id: info.id, seed: this.seed, edits: [...this.edits], players: others });
+      this.send(ws, { t: 'welcome', id: info.id, seed: this.seed, season: this.season, edits: [...this.edits], players: others });
       this.broadcast({ t: 'joined', player: info }, ws);
       return;
     }

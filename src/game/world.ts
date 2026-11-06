@@ -1,4 +1,4 @@
-import { Block, BLOCKS, isReplaceable } from './blocks';
+import { Block, BLOCKS, isReplaceable, Season } from './blocks';
 import { Noise } from './noise';
 
 export const CHUNK = 16;
@@ -35,8 +35,12 @@ export class World {
   readonly chunks = new Map<string, Chunk>();
   readonly edits = new Map<string, Block>();
 
-  constructor(readonly seed: number) {
+  /** The block that covers the ground this season. */
+  readonly ground: Block;
+
+  constructor(readonly seed: number, readonly season: Season = 'summer') {
     this.noise = new Noise(seed);
+    this.ground = season === 'winter' ? Block.Snow : season === 'autumn' ? Block.DryGrass : Block.Moss;
   }
 
   surfaceHeight(x: number, z: number): number {
@@ -89,7 +93,7 @@ export class World {
           let y = HEIGHT - 2;
           while (y > 0 && !this.isSolid(px, y, pz)) y--;
           const ground = this.get(px, y, pz);
-          if ((ground === Block.Moss || ground === Block.Sand) &&
+          if ((ground === this.ground || ground === Block.Sand) &&
               isReplaceable(this.get(px, y + 1, pz)) && this.get(px, y + 1, pz) === Block.Air &&
               this.get(px, y + 2, pz) === Block.Air) {
             return [px + 0.5, y + 1, pz + 0.5];
@@ -112,10 +116,12 @@ export class World {
           if (y === 0) b = Block.Bedrock;
           else if (y < top - 3) b = Block.Stone;
           else if (shore) b = Block.Sand;
-          else b = y === top ? Block.Moss : Block.Soil;
+          else b = y === top ? this.ground : Block.Soil;
           c.set(lx, y, lz, b);
         }
         for (let y = top + 1; y <= SEA_LEVEL; y++) c.set(lx, y, lz, Block.Water);
+        // Winter freezes the surface of lakes and the sea.
+        if (this.season === 'winter' && top < SEA_LEVEL) c.set(lx, SEA_LEVEL, lz, Block.Ice);
       }
     }
     this.plantTrees(c);
@@ -127,14 +133,21 @@ export class World {
     return c;
   }
 
+  private leafFor(r: number): Block {
+    if (this.season === 'spring') return r < 0.75 ? Block.Blossom : Block.Leaf;
+    if (this.season === 'autumn') return r < 0.75 ? Block.Maple : Block.Leaf;
+    return Block.Leaf;
+  }
+
   /** Round, puffy trees that always fit inside their chunk. */
   private plantTrees(c: Chunk) {
     for (let lx = 3; lx <= CHUNK - 4; lx++) {
       for (let lz = 3; lz <= CHUNK - 4; lz++) {
         const wx = c.cx * CHUNK + lx, wz = c.cz * CHUNK + lz;
-        if (this.noise.hash01(wx, wz, 101) > 0.014) continue;
+        if (this.noise.hash01(wx, wz, 101) > (this.season === 'summer' ? 0.024 : 0.015)) continue;
         const g = this.surfaceHeight(wx, wz);
-        if (c.get(lx, g, lz) !== Block.Moss) continue;
+        if (c.get(lx, g, lz) !== this.ground) continue;
+        const leaf = this.leafFor(this.noise.hash01(wx, wz, 303));
         const trunk = 3 + Math.floor(this.noise.hash01(wx, wz, 202) * 2);
         if (g + trunk + 4 >= HEIGHT) continue;
         for (let y = 1; y <= trunk; y++) c.set(lx, g + y, lz, Block.Wood);
@@ -143,8 +156,18 @@ export class World {
           for (let dy = -2; dy <= 2; dy++)
             for (let dz = -2; dz <= 2; dz++) {
               if (dx * dx + dy * dy * 1.6 + dz * dz > 5.2) continue; // ball-ish canopy
-              if (c.get(lx + dx, cy + dy, lz + dz) === Block.Air) c.set(lx + dx, cy + dy, lz + dz, Block.Leaf);
+              if (c.get(lx + dx, cy + dy, lz + dz) === Block.Air) c.set(lx + dx, cy + dy, lz + dz, leaf);
             }
+        if (this.season === 'winter') {
+          // A cap of snow on each canopy column.
+          for (let dx = -2; dx <= 2; dx++)
+            for (let dz = -2; dz <= 2; dz++)
+              for (let y = cy + 2; y >= cy - 2; y--)
+                if (c.get(lx + dx, y, lz + dz) === leaf) {
+                  c.set(lx + dx, y, lz + dz, Block.Snow);
+                  break;
+                }
+        }
       }
     }
   }

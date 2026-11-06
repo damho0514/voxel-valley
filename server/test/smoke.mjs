@@ -37,7 +37,7 @@ check((await stranger.next((m) => m.t === 'error')).code === 'no-room', 'joining
 
 const host = client('host');
 await host.opened;
-host.send({ t: 'create', name: '호스트', color: 0xff8800, seed: 2_000_001_234, edits: [['1,20,1', 7]] });
+host.send({ t: 'create', name: '호스트', color: 0xff8800, seed: 2_000_001_234, season: 'winter', edits: [['1,20,1', 7]] });
 const hw = await host.next((m) => m.t === 'welcome');
 check(hw.seed === 2_000_001_234 && hw.players.length === 0, 'host creates the room');
 
@@ -45,7 +45,7 @@ const guest = client('guest');
 await guest.opened;
 guest.send({ t: 'join', name: '친구', color: 0x3388ff });
 const gw = await guest.next((m) => m.t === 'welcome');
-check(gw.seed === 2_000_001_234 && gw.edits.some(([k, b]) => k === '1,20,1' && b === 7), 'guest gets seed and edits');
+check(gw.seed === 2_000_001_234 && gw.season === 'winter' && gw.edits.some(([k, b]) => k === '1,20,1' && b === 7), 'guest gets seed and edits');
 check(gw.players.length === 1 && gw.players[0].name === '호스트', 'guest sees the host');
 check((await host.next((m) => m.t === 'joined')).player.name === '친구', 'host is told about the guest');
 
