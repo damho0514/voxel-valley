@@ -4,6 +4,9 @@ import { Platform } from 'react-native';
 import { buildChunkMesh, MeshArrays } from '../game/mesher';
 import { CHUNK, chunkKey, toChunk, World } from '../game/world';
 
+/** Where another player is, as the renderer needs it. */
+export type Avatar = { id: string; color: number; x: number; y: number; z: number; yaw: number };
+
 // Colours in this game are authored as plain sRGB values and shown as-is.
 THREE.ColorManagement.enabled = false;
 
@@ -44,6 +47,13 @@ export class VoxelRenderer {
   private readonly waterMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false, side: THREE.DoubleSide });
   private readonly meshes = new Map<string, THREE.Group>();
   private readonly highlight: THREE.LineSegments;
+  private readonly avatars = new Map<string, THREE.Group>();
+  private readonly avatarGeo = {
+    body: new THREE.BoxGeometry(0.56, 0.9, 0.4),
+    head: new THREE.BoxGeometry(0.62, 0.62, 0.62),
+    visor: new THREE.BoxGeometry(0.46, 0.18, 0.04),
+  };
+  private daylight = 1;
   viewRadius = 3;
 
   constructor(private readonly gl: ExpoWebGLRenderingContext, private readonly world: World) {
@@ -90,6 +100,62 @@ export class VoxelRenderer {
     const k = 0.3 + 0.7 * d;
     this.solidMat.color.setRGB(k, k, k);
     this.waterMat.color.setRGB(k, k, k);
+    this.daylight = k;
+    for (const a of this.avatars.values()) this.tintAvatar(a);
+  }
+
+  private tintAvatar(a: THREE.Group) {
+    a.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        const m = o.material as THREE.MeshBasicMaterial;
+        m.color.copy(o.userData.base as THREE.Color).multiplyScalar(this.daylight);
+      }
+    });
+  }
+
+  private makeAvatar(color: number) {
+    const part = (geo: THREE.BufferGeometry, c: THREE.Color, y: number, z = 0) => {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+      m.userData.base = c;
+      m.position.set(0, y, z);
+      return m;
+    };
+    const base = new THREE.Color(color);
+    const g = new THREE.Group();
+    g.add(part(this.avatarGeo.body, base.clone().multiplyScalar(0.8), 0.45));
+    g.add(part(this.avatarGeo.head, base.clone().lerp(new THREE.Color(1, 1, 1), 0.25), 1.22));
+    // Forward is -z (matches the camera at yaw 0).
+    g.add(part(this.avatarGeo.visor, new THREE.Color(0x24313a), 1.28, -0.32));
+    this.tintAvatar(g);
+    return g;
+  }
+
+  /** Shows other players, gliding toward their latest reported spot. */
+  setAvatars(list: Iterable<Avatar>, dt: number) {
+    const seen = new Set<string>();
+    const k = 1 - Math.exp(-dt * 12);
+    for (const p of list) {
+      if (p.y < -50) continue; // hasn't reported a position yet
+      seen.add(p.id);
+      let a = this.avatars.get(p.id);
+      if (!a) {
+        a = this.makeAvatar(p.color);
+        a.position.set(p.x, p.y, p.z);
+        a.rotation.y = p.yaw;
+        this.avatars.set(p.id, a);
+        this.scene.add(a);
+      }
+      a.position.lerp(new THREE.Vector3(p.x, p.y, p.z), k);
+      let d = p.yaw - a.rotation.y;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      a.rotation.y += d * k;
+    }
+    for (const [id, a] of this.avatars) {
+      if (seen.has(id)) continue;
+      this.scene.remove(a);
+      a.traverse((o) => { if (o instanceof THREE.Mesh) (o.material as THREE.Material).dispose(); });
+      this.avatars.delete(id);
+    }
   }
 
   /** Builds up to `budget` missing chunk meshes near (px, pz), nearest first; drops far ones. */

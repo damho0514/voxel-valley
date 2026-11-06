@@ -2,7 +2,7 @@ import { Block, BLOCKS, isReplaceable, PLACEABLE } from './blocks';
 import { Body, collides, EYE_HEIGHT, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
 import { Hit, raycast } from './raycast';
 import { Save } from './storage';
-import { HEIGHT, World } from './world';
+import { HEIGHT, toChunk, World } from './world';
 
 export const REACH = 6;
 const WALK = 4.6;
@@ -44,6 +44,8 @@ export class Game {
 
   /** Called with (x, z) whenever a block changes so the renderer can rebuild. */
   onBlockChanged: (x: number, z: number) => void = () => {};
+  /** Called when this player digs or places a block (for sending to a shared room). */
+  onEdit: (x: number, y: number, z: number, b: Block) => void = () => {};
 
   constructor(save: Save | null) {
     this.world = new World(save?.seed ?? Math.floor(Math.random() * 2 ** 31));
@@ -128,6 +130,7 @@ export class Game {
       this.digProgress = 0;
       this.dirty = true;
       this.onBlockChanged(t.x, t.z);
+      this.onEdit(t.x, t.y, t.z, Block.Air);
     }
   }
 
@@ -152,6 +155,20 @@ export class Game {
       this.world.set(x, y, z, Block.Air);
       return;
     }
+    this.dirty = true;
+    this.onBlockChanged(x, z);
+    this.onEdit(x, y, z, b);
+  }
+
+  /** A block changed by another player in the room. */
+  applyRemoteEdit(x: number, y: number, z: number, b: Block) {
+    if (y < 0 || y >= HEIGHT) return;
+    // Only touch chunk data that's already loaded; unloaded chunks pick the edit up when generated.
+    if (this.world.hasChunk(toChunk(x), toChunk(z))) this.world.set(x, y, z, b);
+    else this.world.edits.set(`${x},${y},${z}`, b);
+    // If it landed on us, step up out of it.
+    const p = this.body;
+    if (collides(this.world, p.x, p.y, p.z)) p.y = Math.min(HEIGHT, y + 1);
     this.dirty = true;
     this.onBlockChanged(x, z);
   }
