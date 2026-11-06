@@ -61,5 +61,4 @@ export const PLACEABLE: Block[] = [
   Block.Moss, Block.Soil, Block.Stone, Block.Sand, Block.Wood, Block.Plank, Block.Clay, Block.Glass, Block.Leaf,
 ];
 
-export const dropOf = (b: Block): Block => (b === Block.Moss ? Block.Soil : b);
 export const isReplaceable = (b: Block) => b === Block.Air || b === Block.Water;

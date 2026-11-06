@@ -157,18 +157,15 @@ function Play({ fresh, onExit }: { fresh: boolean; onExit: () => void }) {
       <HoldButton label="점프" color="#56657a" style={{ right: 28, bottom: 36 }} onChange={(h) => { inputRef.current.jump = h; }} />
 
       <View style={styles.hotbar}>
-        {PLACEABLE.map((b, i) => {
-          const count = hud?.inventory[b] ?? 0;
-          return (
-            <Pressable key={b} testID={`slot-${i}`} onPress={() => select(i)}
-              style={[styles.slot, hud?.selected === i && styles.slotSelected]}>
-              <View style={[styles.swatch, { backgroundColor: hex(BLOCKS[b].top), opacity: count > 0 ? 1 : 0.3 }]} />
-              {count > 0 && <Text style={styles.count}>{count}</Text>}
-            </Pressable>
-          );
-        })}
+        {PLACEABLE.map((b, i) => (
+          <Pressable key={b} testID={`slot-${i}`} onPress={() => select(i)}
+            style={[styles.slot, hud?.selected === i && styles.slotSelected]}>
+            <View style={[styles.swatch, { backgroundColor: hex(BLOCKS[b].top) }]} />
+            <Text style={styles.count}>∞</Text>
+          </Pressable>
+        ))}
       </View>
-      {hud && <Text style={styles.selectedName}>{`${BLOCKS[PLACEABLE[hud.selected]].name} (${hud.inventory[PLACEABLE[hud.selected]] ?? 0})`}</Text>}
+      {hud && <Text style={styles.selectedName}>{`${BLOCKS[PLACEABLE[hud.selected]].name} (무제한)`}</Text>}
 
       {loading && (
         <View style={styles.loading}>

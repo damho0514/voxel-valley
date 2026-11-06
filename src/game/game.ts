@@ -1,5 +1,4 @@
-import { Block, BLOCKS, dropOf, isReplaceable, PLACEABLE } from './blocks';
-import { add, Inventory, starterInventory, take } from './inventory';
+import { Block, BLOCKS, isReplaceable, PLACEABLE } from './blocks';
 import { Body, collides, EYE_HEIGHT, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
 import { Hit, raycast } from './raycast';
 import { Save } from './storage';
@@ -24,7 +23,6 @@ export type Input = {
 
 export type HudState = {
   selected: number;
-  inventory: Inventory;
   dig: number; // 0..1
   timeLabel: string;
   target: string | null;
@@ -36,7 +34,6 @@ export class Game {
   readonly body: Body;
   yaw = 0;
   pitch = 0;
-  inventory: Inventory;
   selected = 0;
   target: Hit | null = null;
   time = 0.08; // 0 sunrise, 0.25 noon, 0.75 midnight
@@ -51,7 +48,6 @@ export class Game {
   constructor(save: Save | null) {
     this.world = new World(save?.seed ?? Math.floor(Math.random() * 2 ** 31));
     for (const [key, b] of save?.edits ?? []) this.world.edits.set(key, b);
-    this.inventory = save?.inventory ?? starterInventory();
     const p = save?.pos ?? this.world.findSpawn(0, 0);
     this.body = { x: p[0], y: p[1], z: p[2], vy: 0, onGround: false };
     this.spawned = !!save?.pos;
@@ -128,9 +124,7 @@ export class Game {
     if (!info.breakable) return;
     this.digProgress += dt / Math.max(0.05, info.hardness);
     if (this.digProgress >= 1) {
-      const b = this.world.get(t.x, t.y, t.z);
       this.world.set(t.x, t.y, t.z, Block.Air);
-      add(this.inventory, dropOf(b));
       this.digProgress = 0;
       this.dirty = true;
       this.onBlockChanged(t.x, t.z);
@@ -147,18 +141,15 @@ export class Game {
     const x = t.x + t.nx, y = t.y + t.ny, z = t.z + t.nz;
     const b = this.selectedBlock;
     if (y < 1 || y >= HEIGHT || !isReplaceable(this.world.get(x, y, z))) return;
-    if ((this.inventory[b] ?? 0) <= 0) return;
-    // Don't build inside yourself.
+    // Blocks are unlimited. Don't build inside yourself.
     const p = this.body;
     const overlaps = p.x + PLAYER_HALF > x && p.x - PLAYER_HALF < x + 1 &&
       p.z + PLAYER_HALF > z && p.z - PLAYER_HALF < z + 1 &&
       p.y + PLAYER_HEIGHT > y && p.y < y + 1;
     if (overlaps) return;
-    take(this.inventory, b);
     this.world.set(x, y, z, b);
     if (collides(this.world, p.x, p.y, p.z)) { // safety net
       this.world.set(x, y, z, Block.Air);
-      add(this.inventory, b);
       return;
     }
     this.dirty = true;
@@ -171,7 +162,6 @@ export class Game {
     const t = this.target ? BLOCKS[this.world.get(this.target.x, this.target.y, this.target.z)].name : null;
     return {
       selected: this.selected,
-      inventory: { ...this.inventory },
       dig: this.digProgress,
       timeLabel: `${night ? '밤' : '낮'} ${String(Math.floor(hours)).padStart(2, '0')}:${String(Math.floor((hours % 1) * 60)).padStart(2, '0')}`,
       target: t,
@@ -182,7 +172,6 @@ export class Game {
     return {
       seed: this.world.seed,
       edits: [...this.world.edits.entries()],
-      inventory: this.inventory,
       pos: [this.body.x, this.body.y, this.body.z],
     };
   }

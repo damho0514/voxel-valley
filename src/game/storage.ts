@@ -1,10 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Block } from './blocks';
-import { Inventory } from './inventory';
 
 const KEY = 'voxel-valley-go/save-v1';
 
-export type Save = { seed: number; edits: [string, Block][]; inventory: Inventory; pos?: [number, number, number] };
+// Older saves also carry an `inventory` field; it is ignored now that blocks are unlimited.
+export type Save = { seed: number; edits: [string, Block][]; pos?: [number, number, number] };
 
 export async function loadSave(): Promise<Save | null> {
   try {
