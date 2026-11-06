@@ -4,7 +4,7 @@ export { isRoomCode } from '../../server/src/protocol';
 export type { PlayerInfo } from '../../server/src/protocol';
 
 /** wss://… of the room server. Set EXPO_PUBLIC_SERVER_URL to point at a local `wrangler dev`. */
-export const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'wss://voxel-valley-server.damho0514.workers.dev';
+export const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'wss://voxel-valley-server.voxel-valley-server.workers.dev';
 
 export const newRoomCode = () =>
   Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
