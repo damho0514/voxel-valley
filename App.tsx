@@ -5,7 +5,7 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import { Gyroscope } from 'expo-sensors';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, AppState, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Animated, AppState, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { sound } from './src/audio/sound';
 import { Block, BLOCKS, Dimension, DIMENSION_INFO, Season, SEASON_INFO, SEASONS } from './src/game/blocks';
@@ -28,8 +28,9 @@ const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 const PROFILE_KEY = 'voxel-valley-go/profile-v1';
 const AVATAR_COLORS = [0xf28b6c, 0x6cb4f2, 0x8bd17c, 0xc89cf0, 0xf2c94c, 0xf27fb2, 0x5fd0c4, 0xb0a08a];
 const SENSITIVITY = [{ label: '느림', k: 0.6 }, { label: '보통', k: 1 }, { label: '빠름', k: 1.5 }];
-type LookMode = 'steer' | 'tilt' | 'drag';
+type LookMode = 'stick' | 'steer' | 'tilt' | 'drag';
 const LOOK_MODES: { mode: LookMode; label: string; help: string }[] = [
+  { mode: 'stick', label: '듀얼 조이스틱', help: '왼쪽 조이스틱=이동, 오른쪽 조이스틱=둘러보기' },
   { mode: 'steer', label: '쉬운 회전', help: '조이스틱 좌우로 몸이 돌아요 (화면 드래그도 가능)' },
   { mode: 'tilt', label: '기울이기', help: '폰을 돌리고 기울이면 시점이 따라와요 (화면 드래그도 가능)' },
   { mode: 'drag', label: '드래그', help: '오른쪽 화면을 끌어서 둘러봐요 (조이스틱 좌우는 옆걸음)' },
@@ -171,7 +172,8 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   const strikeRef = useRef<(hit: { x: number; y: number; z: number }) => void>(() => {});
   const [dragon, setDragon] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const lookMode: LookMode = profile.lookMode ?? 'steer';
+  const lookMode: LookMode = profile.lookMode ?? 'stick';
+  const lookStick = useRef({ x: 0, y: 0 });
 
   const touchRef = useRef<Touch>({ tap: null, hold: null });
   const gameRef = useRef<Game | null>(null);
@@ -188,6 +190,8 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   screen.current = { width, height };
   const alive = useRef(true);
   const sens = SENSITIVITY[profile.sensitivity ?? 1];
+  const sensRef = useRef(sens.k);
+  sensRef.current = sens.k;
 
   // Settings take effect immediately.
   useEffect(() => {
@@ -324,7 +328,11 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       else if (s === 'break') buzz(Haptics.ImpactFeedbackStyle.Medium);
     };
     game.autoJump = profile.autoJump ?? true;
-    game.steer = (profile.lookMode ?? 'steer') === 'steer';
+    game.steer = (profile.lookMode ?? 'stick') === 'steer';
+    game.onBreak = (x, y, z, b) => {
+      const info = BLOCKS[b];
+      view.effects.burst(x, y, z, [info.top, info.side, info.side]);
+    };
     viewRef.current = view;
     if (__DEV__ && Platform.OS === 'web') (globalThis as { __vvView?: VoxelRenderer }).__vvView = view;
     game.onDimension = (d) => {
@@ -377,7 +385,14 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         const hit = game.farHit(game.aimRay ?? game.lookDir());
         if (hit) strike(hit);
       }
+      // Right stick: turn rate grows with how far it's pushed (fine aim near the centre).
+      const ls = lookStick.current, lk = sensRef.current * dt;
+      if (ls.x || ls.y) {
+        input.turnYaw = (input.turnYaw ?? 0) - Math.sign(ls.x) * Math.pow(Math.abs(ls.x), 1.7) * 2.6 * lk;
+        input.turnPitch = (input.turnPitch ?? 0) + Math.sign(ls.y) * Math.pow(Math.abs(ls.y), 1.7) * 1.8 * lk;
+      }
       game.update(dt, { ...input, dig: input.dig || !!touch.hold, placeTap: input.placeTap || (!!touch.tap && !dragonTap) }, ready);
+      view.effects.setDig(game.dig, game.target?.x, game.target?.y, game.target?.z);
       view.dragon?.follow(new THREE.Vector3(game.body.x, game.body.y, game.body.z));
       input.lookDX = 0;
       input.lookDY = 0;
@@ -407,7 +422,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       view.camera.rotation.set(game.pitch, game.yaw, 0);
       const t = game.target;
       view.setHighlight(t ? t.x : null, t?.y, t?.z);
-      view.setDaylight(game.daylight);
+      view.setDaylight(game.daylight, game.time);
       view.render(dt);
 
       if (now - lastHud > 120) {
@@ -566,6 +581,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       )}
 
       <Joystick onMove={(x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
+      {lookMode === 'stick' && <Joystick side="right" onMove={(x, y) => { lookStick.current = { x, y }; }} />}
       {dim === 'space' ? (
         <>
           <HoldButton label="▲" color="#6b5fd6" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
@@ -575,14 +591,14 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         <HoldButton label="점프" color="#56657a" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
       )}
 
-      <View style={styles.hotbar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hotbar} contentContainerStyle={styles.hotbarInner}>
         {palette.map((b, i) => (
           <Pressable key={b} testID={`slot-${i}`} onPress={() => select(i)}
             style={[styles.slot, hud?.selected === i && styles.slotSelected]}>
-            <View style={[styles.swatch, { backgroundColor: hex(BLOCKS[b].top) }]} />
+            <View style={[styles.swatch, { backgroundColor: hex(BLOCKS[b].top) }, BLOCKS[b].glass && styles.swatchGlass]} />
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
       {hud && palette.length > 0 && (
         <Text pointerEvents="none" style={styles.selectedName}>{`${BLOCKS[palette[hud.selected]].name} · 무제한`}</Text>
       )}
@@ -654,8 +670,9 @@ const styles = StyleSheet.create({
   topRight: { position: 'absolute', top: 10, right: 14, flexDirection: 'row', gap: 8 },
   pill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(30,40,50,0.45)' },
   pillText: { color: 'white', fontWeight: '700' },
-  hotbar: { position: 'absolute', bottom: 10, alignSelf: 'center', flexDirection: 'row', gap: 5, padding: 5,
-    borderRadius: 14, backgroundColor: 'rgba(30,40,50,0.35)' },
+  hotbar: { position: 'absolute', bottom: 10, alignSelf: 'center', maxWidth: '52%', borderRadius: 14, backgroundColor: 'rgba(30,40,50,0.35)', flexGrow: 0 },
+  hotbarInner: { flexDirection: 'row', gap: 5, padding: 5 },
+  swatchGlass: { opacity: 0.55, borderWidth: 2, borderColor: 'rgba(255,255,255,0.95)' },
   slot: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' },
   slotSelected: { backgroundColor: 'rgba(255,255,255,0.6)' },
   swatch: { width: 28, height: 28, borderRadius: 8 },

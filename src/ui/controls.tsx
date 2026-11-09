@@ -8,7 +8,7 @@ const STICK = 120;
  * Floating thumb stick: put your thumb down anywhere in the left zone and the stick centres there
  * (no hunting for a fixed pad). Reports a -1..1 vector (x right, y forward).
  */
-export function Joystick({ onMove }: { onMove: (x: number, y: number) => void }) {
+export function Joystick({ onMove, side = 'left' }: { onMove: (x: number, y: number) => void; side?: 'left' | 'right' }) {
   const [stick, setStick] = useState<{ cx: number; cy: number; x: number; y: number } | null>(null);
   const center = useRef({ x: 0, y: 0 });
   const pan = usePanGesture({
@@ -34,13 +34,13 @@ export function Joystick({ onMove }: { onMove: (x: number, y: number) => void })
   });
   return (
     <GestureDetector gesture={pan}>
-      <View style={styles.stickZone} testID="joystick">
+      <View style={side === 'left' ? styles.stickZone : styles.stickZoneRight} testID={side === 'left' ? 'joystick' : 'lookstick'}>
         {stick ? (
           <View pointerEvents="none" style={[styles.stick, { left: stick.cx - STICK / 2, top: stick.cy - STICK / 2 }]}>
             <View style={[styles.knob, { transform: [{ translateX: stick.x }, { translateY: stick.y }] }]} />
           </View>
         ) : (
-          <View pointerEvents="none" style={[styles.stick, styles.stickIdle]}>
+          <View pointerEvents="none" style={[styles.stick, side === 'left' ? styles.stickIdle : styles.stickIdleRight]}>
             <View style={styles.knob} />
           </View>
         )}
@@ -129,6 +129,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,30,40,0.25)', alignItems: 'center', justifyContent: 'center',
   },
   stickIdle: { left: 36, bottom: 30, opacity: 0.55 },
+  // The look stick sits above the jump button on the right.
+  stickZoneRight: { position: 'absolute', right: 0, bottom: 128, width: '34%', height: '48%' },
+  stickIdleRight: { right: 40, bottom: 20, opacity: 0.45 },
   knob: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.75)' },
   button: {
     position: 'absolute', width: 74, height: 74, borderRadius: 37, alignItems: 'center', justifyContent: 'center',

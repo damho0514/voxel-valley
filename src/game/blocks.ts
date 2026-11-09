@@ -35,9 +35,13 @@ export enum Block {
   Station = 29,
   Ember = 30,
   Ash = 31,
+  GlassSky = 32,
+  GlassRose = 33,
+  GlassAmber = 34,
+  GlassMint = 35,
 }
 
-export const BLOCK_COUNT = 32;
+export const BLOCK_COUNT = 36;
 
 /** The valley (seasonal), the future city, and outer space. */
 export type Dimension = 'valley' | 'future' | 'space';
@@ -79,6 +83,8 @@ export type BlockInfo = {
   glow?: boolean;
   /** See-through, drawn in a separate translucent pass (portals). */
   portal?: boolean;
+  /** Clear or tinted glass: a translucent pass with sorted-ish blending. */
+  glass?: boolean;
 };
 
 const rgb = (hex: number): [number, number, number] => [
@@ -101,7 +107,7 @@ export const BLOCKS: Record<Block, BlockInfo> = {
   [Block.Leaf]: { name: '잎', ...same(0x7fcf9b), solid: true, opaque: true, breakable: true, hardness: 0.2 },
   [Block.Plank]: { name: '판자', ...same(0xf0c98f), solid: true, opaque: true, breakable: true, hardness: 0.8 },
   [Block.Clay]: { name: '점토', ...same(0xf29b8f), solid: true, opaque: true, breakable: true, hardness: 1.2 },
-  [Block.Glass]: { name: '유리', ...same(0xd6f1fb), solid: true, opaque: false, breakable: true, hardness: 0.3 },
+  [Block.Glass]: { name: '투명 유리', ...same(0xe8f6ff), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
   [Block.Bedrock]: { name: '바닥돌', ...same(0x5d6270), solid: true, opaque: true, breakable: false, hardness: Infinity },
   [Block.Water]: { name: '물', ...same(0x7cc4f2), solid: false, opaque: false, breakable: false, hardness: Infinity },
   [Block.Blossom]: { name: '벚꽃잎', ...same(0xf6bdd3), solid: true, opaque: true, breakable: true, hardness: 0.2 },
@@ -124,9 +130,15 @@ export const BLOCKS: Record<Block, BlockInfo> = {
   [Block.Station]: { name: '정거장 패널', ...same(0xe6eaf0), solid: true, opaque: true, breakable: true, hardness: 1.2 },
   [Block.Ember]: { name: '불씨', ...same(0xff7a3d), solid: true, opaque: true, breakable: true, hardness: 0.3, glow: true },
   [Block.Ash]: { name: '잿더미', ...same(0x4a4448), solid: true, opaque: true, breakable: true, hardness: 0.4 },
+  [Block.GlassSky]: { name: '하늘색 유리', ...same(0x7cc8f2), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
+  [Block.GlassRose]: { name: '분홍 유리', ...same(0xf59ac0), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
+  [Block.GlassAmber]: { name: '호박색 유리', ...same(0xf5c060), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
+  [Block.GlassMint]: { name: '민트 유리', ...same(0x7fe0b0), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
 };
 
-const BASE_PALETTE: Block[] = [Block.Moss, Block.Soil, Block.Stone, Block.Sand, Block.Wood, Block.Plank, Block.Clay, Block.Glass];
+const BASE_PALETTE: Block[] = [Block.Moss, Block.Soil, Block.Stone, Block.Sand, Block.Wood, Block.Plank, Block.Clay];
+/** Clear glass plus four tints, available everywhere. */
+export const GLASS_PALETTE: Block[] = [Block.Glass, Block.GlassSky, Block.GlassRose, Block.GlassAmber, Block.GlassMint];
 const SEASON_BLOCKS: Record<Season, Block[]> = {
   spring: [Block.Blossom, Block.Leaf],
   summer: [Block.Leaf, Block.Blossom],
@@ -134,11 +146,11 @@ const SEASON_BLOCKS: Record<Season, Block[]> = {
   winter: [Block.Snow, Block.Ice],
 };
 
-const FUTURE_PALETTE: Block[] = [Block.Metal, Block.Asphalt, Block.RoadLine, Block.Neon, Block.Window, Block.WindowLit, Block.Glass, Block.Stone, Block.Clay, Block.Station];
-const SPACE_PALETTE: Block[] = [Block.Station, Block.Metal, Block.Neon, Block.Asteroid, Block.Crystal, Block.Glass, Block.WindowLit, Block.Stone, Block.Moss, Block.Clay];
+const FUTURE_PALETTE: Block[] = [Block.Metal, Block.Asphalt, Block.RoadLine, Block.Neon, Block.Window, Block.WindowLit, Block.Stone, Block.Clay, Block.Station];
+const SPACE_PALETTE: Block[] = [Block.Station, Block.Metal, Block.Neon, Block.Asteroid, Block.Crystal, Block.WindowLit, Block.Stone, Block.Moss, Block.Clay];
 
 /** Hotbar order: the basics plus that season's blocks, or the other dimensions' kits. */
 export const paletteFor = (season: Season, dim: Dimension = 'valley'): Block[] =>
-  dim === 'future' ? FUTURE_PALETTE : dim === 'space' ? SPACE_PALETTE : [...BASE_PALETTE, ...SEASON_BLOCKS[season]];
+  [...(dim === 'future' ? FUTURE_PALETTE : dim === 'space' ? SPACE_PALETTE : [...BASE_PALETTE, ...SEASON_BLOCKS[season]]), ...GLASS_PALETTE];
 
 export const isReplaceable = (b: Block) => b === Block.Air || b === Block.Water;

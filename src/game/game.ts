@@ -68,6 +68,8 @@ export class Game {
   /** Called when this player digs or places a block (for sending to a shared room). */
   onEdit: (x: number, y: number, z: number, b: Block) => void = () => {};
   onSound: (s: SoundName) => void = () => {};
+  /** A block was dug out (for the break effect). */
+  onBreak: (x: number, y: number, z: number, b: Block) => void = () => {};
   /** Called after stepping through a gate into another dimension. */
   onDimension: (dim: Dimension) => void = () => {};
 
@@ -293,6 +295,7 @@ export class Game {
     }
     if (this.digProgress >= 1) {
       this.onSound('break');
+      this.onBreak(t.x, t.y, t.z, this.world.get(t.x, t.y, t.z));
       this.world.set(t.x, t.y, t.z, Block.Air);
       this.digProgress = 0;
       this.dirty = true;

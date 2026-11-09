@@ -5,6 +5,17 @@ import type { Dimension, Season } from '../game/blocks';
 import { buildChunkMesh, MeshArrays } from '../game/mesher';
 import { CHUNK, chunkKey, toChunk, World } from '../game/world';
 import { Dragon } from './dragon';
+import { BreakEffects } from './effects';
+import { Sky } from './sky';
+import { blockAtlas, waterTexture } from './textures';
+
+const SKY_PALETTE: Record<Season | 'future', { zenith: number; horizon: number }> = {
+  spring: { zenith: 0x74b3ea, horizon: 0xf6e3ef },
+  summer: { zenith: 0x3f95e0, horizon: 0xcde9f8 },
+  autumn: { zenith: 0x6a98c8, horizon: 0xf5d8b6 },
+  winter: { zenith: 0x93b0c8, horizon: 0xeaf0f4 },
+  future: { zenith: 0x4a5ea6, horizon: 0xd0c6ec },
+};
 
 /** Where another player is, as the renderer needs it. */
 export type Avatar = { id: string; color: number; x: number; y: number; z: number; yaw: number; robot?: boolean };
@@ -32,6 +43,7 @@ function geometryOf(a: MeshArrays) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(a.positions, 3));
   g.setAttribute('color', new THREE.BufferAttribute(a.colors, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(a.uvs, 2));
   g.setIndex(new THREE.BufferAttribute(a.indices, 1));
   g.computeBoundingSphere();
   return g;
@@ -58,26 +70,27 @@ export class VoxelRenderer {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
-  private readonly solidMat = new THREE.MeshBasicMaterial({ vertexColors: true });
-  private readonly waterMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false, side: THREE.DoubleSide });
-  private readonly glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
-  private readonly portalMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
+  private readonly atlas = blockAtlas();
+  private readonly waterTex = waterTexture();
+  private readonly solidMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.atlas });
+  private readonly waterMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.waterTex, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide });
+  private readonly glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.atlas });
+  private readonly portalMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.atlas, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide });
+  private readonly glassMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.atlas, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  private readonly sky: Sky;
+  readonly effects: BreakEffects;
+  private time = 0.25;
   private dim: Dimension = 'valley';
   private extras: THREE.Object3D[] = []; // per-dimension scenery (stars, planets, cars)
   private cars: { mesh: THREE.Group; axis: 'x' | 'z'; lane: number; y: number; speed: number; offset: number }[] = [];
   private readonly meshes = new Map<string, THREE.Group>();
   private readonly highlight: THREE.LineSegments;
   private readonly avatars = new Map<string, THREE.Group>();
-  private readonly avatarGeo = {
-    body: new THREE.BoxGeometry(0.56, 0.9, 0.4),
-    head: new THREE.BoxGeometry(0.62, 0.62, 0.62),
-    visor: new THREE.BoxGeometry(0.46, 0.18, 0.04),
-  };
   private daylight = 1;
   private skyDay = new THREE.Color(SKY.summer);
   private weather: { points: THREE.Points; pos: Float32Array; phase: Float32Array; spec: NonNullable<(typeof WEATHER)[Season]> } | null = null;
   private clock = 0;
-  viewRadius = 3;
+  viewRadius = 4;
 
   constructor(private readonly gl: ExpoWebGLRenderingContext, private world: World) {
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
@@ -92,9 +105,11 @@ export class VoxelRenderer {
     this.renderer.setSize(w, h, false);
     this.renderer.setClearColor(this.skyDay);
 
-    this.camera = new THREE.PerspectiveCamera(72, w / h, 0.05, 140);
+    this.camera = new THREE.PerspectiveCamera(72, w / h, 0.05, 160);
     this.camera.rotation.order = 'YXZ';
-    this.scene.fog = new THREE.Fog(this.skyDay, 28, 46);
+    this.scene.fog = new THREE.Fog(this.skyDay, 40, 64);
+    this.sky = new Sky(this.scene);
+    this.effects = new BreakEffects(this.scene, (x, y, z) => this.world.isSolid(x, y, z));
 
     this.highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(1.01, 1.01, 1.01)),
@@ -185,13 +200,15 @@ export class VoxelRenderer {
     this.cars = [];
     this.setSeason(season);
     const fog = this.scene.fog as THREE.Fog;
+    this.sky.setVisible(dim !== 'space');
+    this.sky.setPalette(SKY_PALETTE[dim === 'future' ? 'future' : season], true);
     if (dim === 'valley') {
-      fog.near = 28; fog.far = 46; this.camera.far = 140;
+      fog.near = 40; fog.far = 64; this.camera.far = 160;
     } else if (dim === 'future') {
       this.setSeason('summer');
       this.skyDay = new THREE.Color(SKY_FUTURE);
       if (this.weather) { this.scene.remove(this.weather.points); this.weather = null; }
-      fog.near = 30; fog.far = 56; this.camera.far = 160;
+      fog.near = 40; fog.far = 70; this.camera.far = 170;
       this.buildCars();
     } else {
       if (this.weather) { this.scene.remove(this.weather.points); this.weather = null; }
@@ -317,15 +334,17 @@ export class VoxelRenderer {
     this.dragon?.leave();
   }
 
-  /** 0..1 daylight tints the sky, fog and every block. */
-  setDaylight(d: number) {
+  /** 0..1 daylight tints the sky, fog and every block. `time` places the sun and moon. */
+  setDaylight(d: number, time = 0.25) {
     if (this.dim === 'space') d = 1;
-    const sky = this.dim === 'space' ? SKY_SPACE : SKY_NIGHT.clone().lerp(this.skyDay, d);
+    this.time = time;
+    const sky = this.dim === 'space' ? SKY_SPACE : this.sky.update(this.camera, time, d, 0, SKY_NIGHT);
     this.renderer.setClearColor(sky);
     (this.scene.fog as THREE.Fog).color.copy(sky);
     const k = 0.3 + 0.7 * d;
     this.solidMat.color.setRGB(k, k, k);
     this.waterMat.color.setRGB(k, k, k);
+    this.glassMat.color.setRGB(Math.max(0.5, k), Math.max(0.5, k), Math.max(0.5, k));
     this.daylight = k;
     for (const a of this.avatars.values()) this.tintAvatar(a);
   }
@@ -349,24 +368,50 @@ export class VoxelRenderer {
     };
     const base = new THREE.Color(color);
     const g = new THREE.Group();
+    const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
+    /** A limb hanging from a pivot at (x, y), so it can swing. */
+    const limb = (w: number, h: number, d: number, c: THREE.Color, x: number, y: number, glow = false) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, y, 0);
+      const m = part(box(w, h, d), c, -h / 2, 0, glow);
+      pivot.add(m);
+      g.add(pivot);
+      return pivot;
+    };
     if (robot) {
-      // A humanoid robot: silver body, glowing visor, a chest light and an antenna.
+      // A humanoid robot: silver body, glowing visor, a chest light, an antenna, swinging limbs.
       const silver = new THREE.Color(0xc9d0da);
-      g.add(part(new THREE.BoxGeometry(0.22, 0.75, 0.24), silver.clone().multiplyScalar(0.8), 0.37, 0).translateX(-0.15));
-      g.add(part(new THREE.BoxGeometry(0.22, 0.75, 0.24), silver.clone().multiplyScalar(0.8), 0.37, 0).translateX(0.15));
-      g.add(part(new THREE.BoxGeometry(0.62, 0.7, 0.36), silver, 1.07));
-      g.add(part(new THREE.BoxGeometry(0.2, 0.2, 0.04), base, 1.12, -0.19, true));
-      g.add(part(new THREE.BoxGeometry(0.5, 0.48, 0.48), silver.clone().lerp(new THREE.Color(1, 1, 1), 0.3), 1.68));
-      g.add(part(new THREE.BoxGeometry(0.42, 0.12, 0.04), new THREE.Color(0x5ff2ff), 1.72, -0.25, true));
-      g.add(part(new THREE.BoxGeometry(0.04, 0.22, 0.04), silver, 2.02));
-      g.add(part(new THREE.BoxGeometry(0.1, 0.1, 0.1), base, 2.15, 0, true));
+      const legL = limb(0.22, 0.75, 0.24, silver.clone().multiplyScalar(0.8), -0.15, 0.75);
+      const legR = limb(0.22, 0.75, 0.24, silver.clone().multiplyScalar(0.8), 0.15, 0.75);
+      g.add(part(box(0.62, 0.7, 0.36), silver, 1.07));
+      g.add(part(box(0.2, 0.2, 0.04), base, 1.12, -0.19, true));
+      const armL = limb(0.16, 0.62, 0.18, silver.clone().multiplyScalar(0.9), -0.4, 1.38);
+      const armR = limb(0.16, 0.62, 0.18, silver.clone().multiplyScalar(0.9), 0.4, 1.38);
+      g.add(part(box(0.5, 0.48, 0.48), silver.clone().lerp(new THREE.Color(1, 1, 1), 0.3), 1.68));
+      g.add(part(box(0.42, 0.12, 0.04), new THREE.Color(0x5ff2ff), 1.72, -0.25, true));
+      g.add(part(box(0.04, 0.22, 0.04), silver, 2.02));
+      g.add(part(box(0.1, 0.1, 0.1), base, 2.15, 0, true));
+      g.userData.limbs = [legL, legR, armL, armR];
       this.tintAvatar(g);
       return g;
     }
-    g.add(part(this.avatarGeo.body, base.clone().multiplyScalar(0.8), 0.45));
-    g.add(part(this.avatarGeo.head, base.clone().lerp(new THREE.Color(1, 1, 1), 0.25), 1.22));
-    // Forward is -z (matches the camera at yaw 0).
-    g.add(part(this.avatarGeo.visor, new THREE.Color(0x24313a), 1.28, -0.32));
+    // A friendly blocky explorer: shirt in the player's colour, darker trousers, round-ish head
+    // with eyes, a little backpack. Arms and legs swing as they walk.
+    const shirt = base.clone();
+    const trousers = base.clone().multiplyScalar(0.55);
+    const skin = new THREE.Color(0xf4d7bd);
+    const legL = limb(0.24, 0.72, 0.26, trousers, -0.13, 0.72);
+    const legR = limb(0.24, 0.72, 0.26, trousers, 0.13, 0.72);
+    g.add(part(box(0.56, 0.66, 0.32), shirt, 1.05));
+    g.add(part(box(0.4, 0.44, 0.16), base.clone().multiplyScalar(0.7), 1.08, 0.24)); // backpack
+    const armL = limb(0.18, 0.62, 0.2, shirt.clone().multiplyScalar(0.9), -0.38, 1.36);
+    const armR = limb(0.18, 0.62, 0.2, shirt.clone().multiplyScalar(0.9), 0.38, 1.36);
+    g.add(part(box(0.5, 0.5, 0.5), skin, 1.64));
+    g.add(part(box(0.54, 0.16, 0.54), base.clone().lerp(new THREE.Color(1, 1, 1), 0.2), 1.92)); // cap
+    g.add(part(box(0.3, 0.06, 0.2), base.clone().lerp(new THREE.Color(1, 1, 1), 0.2), 1.86, -0.32)); // brim
+    for (const sx of [-0.12, 0.12]) g.add(part(box(0.08, 0.1, 0.02), new THREE.Color(0x2a2f3a), 1.66, -0.26).translateX(sx));
+    g.add(part(box(0.14, 0.04, 0.02), new THREE.Color(0xd98a7a), 1.53, -0.26)); // smile
+    g.userData.limbs = [legL, legR, armL, armR];
     this.tintAvatar(g);
     return g;
   }
@@ -386,7 +431,20 @@ export class VoxelRenderer {
         this.avatars.set(p.id, a);
         this.scene.add(a);
       }
+      const before = a.position.clone();
       a.position.lerp(new THREE.Vector3(p.x, p.y, p.z), k);
+      // Walk cycle: swing speed follows how fast they're moving across the ground.
+      const speed = dt > 0 ? Math.hypot(a.position.x - before.x, a.position.z - before.z) / dt : 0;
+      const limbs = a.userData.limbs as THREE.Group[] | undefined;
+      if (limbs) {
+        a.userData.phase = ((a.userData.phase as number) ?? 0) + dt * Math.min(12, speed * 2.4);
+        const amp = Math.min(0.7, speed * 0.18);
+        const sw = Math.sin(a.userData.phase as number) * amp;
+        limbs[0].rotation.x = sw;
+        limbs[1].rotation.x = -sw;
+        limbs[2].rotation.x = -sw * 0.8;
+        limbs[3].rotation.x = sw * 0.8;
+      }
       let d = p.yaw - a.rotation.y;
       d = Math.atan2(Math.sin(d), Math.cos(d));
       a.rotation.y += d * k;
@@ -432,11 +490,16 @@ export class VoxelRenderer {
     const key = chunkKey(cx, cz);
     const old = this.meshes.get(key);
     if (old) this.dispose(old);
-    const { solid, water, glow, portal } = buildChunkMesh(this.world, cx, cz);
+    const { solid, water, glow, portal, glass } = buildChunkMesh(this.world, cx, cz);
     const group = new THREE.Group();
     group.position.set(cx * CHUNK, 0, cz * CHUNK);
     if (solid.indices.length) group.add(new THREE.Mesh(geometryOf(solid), this.solidMat));
     if (glow.indices.length) group.add(new THREE.Mesh(geometryOf(glow), this.glowMat));
+    if (glass.indices.length) {
+      const m = new THREE.Mesh(geometryOf(glass), this.glassMat);
+      m.renderOrder = 1;
+      group.add(m);
+    }
     if (portal.indices.length) {
       const m = new THREE.Mesh(geometryOf(portal), this.portalMat);
       m.renderOrder = 2;
@@ -474,6 +537,10 @@ export class VoxelRenderer {
   render(dt = 0) {
     dt = Math.min(dt, 0.1);
     this.flushDirty();
+    if (this.dim !== 'space') this.sky.update(this.camera, this.time, (this.daylight - 0.3) / 0.7, dt, SKY_NIGHT);
+    this.waterTex.offset.x = (this.waterTex.offset.x + dt * 0.03) % 1;
+    this.waterTex.offset.y = (this.waterTex.offset.y + dt * 0.017) % 1;
+    this.effects.update(dt, (this.daylight - 0.3) / 0.7);
     this.updateWeather(dt);
     this.updateScenery(dt);
     if (this.dragon) {
