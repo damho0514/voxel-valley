@@ -17,6 +17,9 @@ export type Input = {
   moveY: number; // forward -1..1
   lookDX: number; // accumulated pixels since last frame
   lookDY: number;
+  /** Extra turn this frame in radians (tilt/gyro aiming). */
+  turnYaw?: number;
+  turnPitch?: number;
   jump: boolean;
   down?: boolean; // space only: thrust downward
   dig: boolean;
@@ -42,6 +45,9 @@ export class Game {
   private portalCooldown = 0;
   /** Hop up single steps automatically while walking (like most mobile block games). */
   autoJump = true;
+  /** "Easy turning": the joystick's left/right turns you instead of side-stepping. */
+  steer = true;
+  private idleLook = 0; // seconds since the player last aimed by hand
   yaw = 0;
   pitch = 0;
   selected = 0;
@@ -150,6 +156,18 @@ export class Game {
 
     this.yaw -= input.lookDX * 0.0055;
     this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - input.lookDY * 0.0055));
+    this.yaw += input.turnYaw ?? 0;
+    this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch + (input.turnPitch ?? 0)));
+    const aimed = input.lookDX !== 0 || input.lookDY !== 0 || !!input.turnYaw || !!input.turnPitch;
+    this.idleLook = aimed ? 0 : this.idleLook + dt;
+    if (this.steer) {
+      // Stick left/right turns (faster the further it's pushed); walking then levels the view
+      // gently if you haven't aimed by hand for a moment, so the horizon never gets lost.
+      const t = input.moveX;
+      this.yaw -= Math.sign(t) * Math.pow(Math.abs(t), 1.6) * 2.2 * dt;
+      if (Math.abs(input.moveY) > 0.3 && this.idleLook > 1.2 && this.dim !== 'space') this.pitch += (-0.12 - this.pitch) * Math.min(1, dt * 1.5);
+      input = { ...input, moveX: 0 };
+    }
 
     if (!ready) return;
     if (!this.spawned) {

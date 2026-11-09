@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import * as Haptics from 'expo-haptics';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { Gyroscope } from 'expo-sensors';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
@@ -27,7 +28,13 @@ const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 const PROFILE_KEY = 'voxel-valley-go/profile-v1';
 const AVATAR_COLORS = [0xf28b6c, 0x6cb4f2, 0x8bd17c, 0xc89cf0, 0xf2c94c, 0xf27fb2, 0x5fd0c4, 0xb0a08a];
 const SENSITIVITY = [{ label: '느림', k: 0.6 }, { label: '보통', k: 1 }, { label: '빠름', k: 1.5 }];
-type Profile = { name: string; color: number; sensitivity?: number; autoJump?: boolean };
+type LookMode = 'steer' | 'tilt' | 'drag';
+const LOOK_MODES: { mode: LookMode; label: string; help: string }[] = [
+  { mode: 'steer', label: '쉬운 회전', help: '조이스틱 좌우로 몸이 돌아요 (화면 드래그도 가능)' },
+  { mode: 'tilt', label: '기울이기', help: '폰을 돌리고 기울이면 시점이 따라와요 (화면 드래그도 가능)' },
+  { mode: 'drag', label: '드래그', help: '오른쪽 화면을 끌어서 둘러봐요 (조이스틱 좌우는 옆걸음)' },
+];
+type Profile = { name: string; color: number; sensitivity?: number; autoJump?: boolean; lookMode?: LookMode };
 
 const buzz = (style: Haptics.ImpactFeedbackStyle) => { if (Platform.OS !== 'web') Haptics.impactAsync(style).catch(() => {}); };
 
@@ -163,6 +170,9 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   const viewRef = useRef<VoxelRenderer | null>(null);
   const strikeRef = useRef<(hit: { x: number; y: number; z: number }) => void>(() => {});
   const [dragon, setDragon] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const lookMode: LookMode = profile.lookMode ?? 'steer';
+
   const touchRef = useRef<Touch>({ tap: null, hold: null });
   const gameRef = useRef<Game | null>(null);
   const roomRef = useRef<RoomClient | null>(null);
@@ -178,6 +188,35 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   screen.current = { width, height };
   const alive = useRef(true);
   const sens = SENSITIVITY[profile.sensitivity ?? 1];
+
+  // Settings take effect immediately.
+  useEffect(() => {
+    const g = gameRef.current;
+    if (!g) return;
+    g.steer = lookMode === 'steer';
+    g.autoJump = profile.autoJump ?? true;
+  }, [lookMode, profile.autoJump, hud !== null]);
+
+  // Tilt aiming: integrate the gyroscope into turn input. In landscape the screen's "up" is the
+  // device's ±x axis (which way depends on how the phone is held), its "right" is ∓y.
+  useEffect(() => {
+    if (lookMode !== 'tilt' || Platform.OS === 'web') return;
+    let side = 1;
+    const readSide = (o: ScreenOrientation.Orientation) => { side = o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ? -1 : 1; };
+    ScreenOrientation.getOrientationAsync().then(readSide).catch(() => {});
+    const orient = ScreenOrientation.addOrientationChangeListener((e) => readSide(e.orientationInfo.orientation));
+    let last = 0;
+    Gyroscope.setUpdateInterval(16);
+    const sub = Gyroscope.addListener((g) => {
+      const dt = last ? Math.min(0.05, g.timestamp - last) : 0;
+      last = g.timestamp;
+      const k = 1.25 * sens.k;
+      const dz = (v: number) => (Math.abs(v) < 0.03 ? 0 : v); // ignore hand tremor
+      inputRef.current.turnYaw = (inputRef.current.turnYaw ?? 0) + side * dz(g.x) * dt * k;
+      inputRef.current.turnPitch = (inputRef.current.turnPitch ?? 0) - side * dz(g.y) * dt * k;
+    });
+    return () => { sub.remove(); ScreenOrientation.removeOrientationChangeListener(orient); };
+  }, [lookMode, sens.k]);
 
   // Only solo worlds are saved on this phone; shared worlds live in their room on the server.
   const save = useCallback(() => {
@@ -285,6 +324,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       else if (s === 'break') buzz(Haptics.ImpactFeedbackStyle.Medium);
     };
     game.autoJump = profile.autoJump ?? true;
+    game.steer = (profile.lookMode ?? 'steer') === 'steer';
     viewRef.current = view;
     if (__DEV__ && Platform.OS === 'web') (globalThis as { __vvView?: VoxelRenderer }).__vvView = view;
     game.onDimension = (d) => {
@@ -341,6 +381,8 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       view.dragon?.follow(new THREE.Vector3(game.body.x, game.body.y, game.body.z));
       input.lookDX = 0;
       input.lookDY = 0;
+      input.turnYaw = 0;
+      input.turnPitch = 0;
       input.placeTap = false;
       touch.tap = null;
 
@@ -439,7 +481,12 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     <View style={styles.root}>
       <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />
       <TouchPad style={StyleSheet.absoluteFill}
-        onLook={(dx, dy) => { inputRef.current.lookDX += dx * sens.k; inputRef.current.lookDY += dy * sens.k; }}
+        onLook={(dx, dy) => {
+          // Acceleration curve: slow drags are precise, quick flicks turn a lot.
+          const gain = sens.k * (0.75 + Math.min(1.6, Math.hypot(dx, dy) / 16));
+          inputRef.current.lookDX += dx * gain;
+          inputRef.current.lookDY += dy * gain;
+        }}
         onTap={(x, y) => { touchRef.current.tap = { x, y }; }}
         onHold={(p) => { touchRef.current.hold = p; }} />
       <View pointerEvents="none" style={styles.crosshairWrap}>
@@ -476,25 +523,47 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         <Pressable testID="dragon" style={[styles.pill, dragon && { backgroundColor: 'rgba(196,48,61,0.8)' }]} onPress={summonDragon}>
           <Text style={styles.pillText}>{dragon ? '🐉 돌려보내기' : '🐉 용 소환'}</Text>
         </Pressable>
-        <Pressable testID="autojump" style={styles.pill}
-          onPress={() => {
-            const next = !(profile.autoJump ?? true);
-            onProfile({ ...profile, autoJump: next });
-            if (gameRef.current) gameRef.current.autoJump = next;
-          }}>
-          <Text style={styles.pillText}>{`자동점프 ${(profile.autoJump ?? true) ? '켬' : '끔'}`}</Text>
-        </Pressable>
-        <Pressable testID="sens" style={styles.pill}
-          onPress={() => onProfile({ ...profile, sensitivity: ((profile.sensitivity ?? 1) + 1) % SENSITIVITY.length })}>
-          <Text style={styles.pillText}>{`감도 ${sens.label}`}</Text>
-        </Pressable>
-        <Pressable testID="mute-play" style={styles.pill} onPress={() => { sound.setMuted(!muted); setMuted(!muted); }}>
-          <Text style={styles.pillText}>{muted ? '🔇' : '🔊'}</Text>
+        <Pressable testID="settings" style={[styles.pill, settingsOpen && { backgroundColor: 'rgba(255,255,255,0.35)' }]}
+          onPress={() => { sound.play('tap'); setSettingsOpen(!settingsOpen); }}>
+          <Text style={styles.pillText}>⚙️ 설정</Text>
         </Pressable>
         <Pressable testID="exit" style={styles.pill} onPress={() => { sound.play('tap'); save(); onExit(); }}>
           <Text style={styles.pillText}>나가기</Text>
         </Pressable>
       </View>
+
+      {settingsOpen && (
+        <View style={styles.settings}>
+          <Text style={styles.settingsTitle}>시점 조작</Text>
+          <View style={styles.settingsRow}>
+            {LOOK_MODES.map((m) => (
+              <Pressable key={m.mode} testID={`look-${m.mode}`} style={[styles.choice, lookMode === m.mode && styles.choiceOn]}
+                onPress={() => { sound.play('tap'); onProfile({ ...profile, lookMode: m.mode }); }}>
+                <Text style={styles.choiceText}>{m.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.settingsHelp}>{LOOK_MODES.find((m) => m.mode === lookMode)?.help}</Text>
+          <Text style={styles.settingsTitle}>감도</Text>
+          <View style={styles.settingsRow}>
+            {SENSITIVITY.map((x, i) => (
+              <Pressable key={x.label} style={[styles.choice, (profile.sensitivity ?? 1) === i && styles.choiceOn]}
+                onPress={() => onProfile({ ...profile, sensitivity: i })}>
+                <Text style={styles.choiceText}>{x.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.settingsRow}>
+            <Pressable testID="autojump" style={[styles.choice, (profile.autoJump ?? true) && styles.choiceOn]}
+              onPress={() => onProfile({ ...profile, autoJump: !(profile.autoJump ?? true) })}>
+              <Text style={styles.choiceText}>{`자동점프 ${(profile.autoJump ?? true) ? '켬' : '끔'}`}</Text>
+            </Pressable>
+            <Pressable testID="mute-play" style={[styles.choice, !muted && styles.choiceOn]} onPress={() => { sound.setMuted(!muted); setMuted(!muted); }}>
+              <Text style={styles.choiceText}>{muted ? '🔇 소리 끔' : '🔊 소리 켬'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       <Joystick onMove={(x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
       {dim === 'space' ? (
@@ -574,6 +643,13 @@ const styles = StyleSheet.create({
   playerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   playerDot: { width: 10, height: 10, borderRadius: 5 },
   playerName: { color: 'white', fontSize: 13, fontWeight: '600' },
+  settings: { position: 'absolute', top: 52, right: 14, width: 330, padding: 12, borderRadius: 14, backgroundColor: 'rgba(25,32,45,0.88)', gap: 8 },
+  settingsTitle: { color: 'white', fontWeight: '800', fontSize: 14 },
+  settingsHelp: { color: 'rgba(255,255,255,0.75)', fontSize: 12 },
+  settingsRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  choice: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.12)' },
+  choiceOn: { backgroundColor: '#3f9d63' },
+  choiceText: { color: 'white', fontWeight: '700', fontSize: 13 },
   bigButton: { right: 22, bottom: 30, width: 88, height: 88, borderRadius: 44 },
   topRight: { position: 'absolute', top: 10, right: 14, flexDirection: 'row', gap: 8 },
   pill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(30,40,50,0.45)' },
