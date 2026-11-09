@@ -78,7 +78,9 @@ class Sound {
     if (this.loaded) return;
     this.loaded = true;
     try {
-      this.muted = (await AsyncStorage.getItem(MUTE_KEY)) === '1';
+      // Sound always starts on (an old saved "muted" from the removed settings panel is ignored).
+      this.muted = false;
+      AsyncStorage.removeItem(MUTE_KEY).catch(() => {});
       // Play even with the ring/silent switch on (a game is silent only via the in-app mute),
       // mixing with whatever else is playing.
       await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
@@ -156,6 +158,7 @@ class Sound {
   startMusic() {
     this.musicWanted = true;
     if (!this.muted) try { this.music?.play(); } catch {}
+    this.watchdog();
   }
 
   stopMusic() {
@@ -163,10 +166,25 @@ class Sound {
     try { this.music?.pause(); } catch {}
   }
 
-  /** Back in the foreground: make sure the session is live and the music is running. */
+  /**
+   * Make sure sound is really running: re-activate the audio session and (re)start the music if it
+   * isn't playing. Called on returning to the app and on the first touches.
+   */
   resume() {
     setIsAudioActiveAsync(true).catch(() => {});
-    if (this.musicWanted && !this.muted) try { this.music?.play(); } catch {}
+    if (!this.musicWanted || this.muted) return;
+    try {
+      if (!this.music?.playing) this.music?.play();
+    } catch {}
+  }
+
+  /** Keep checking for a little while after start-up that the music actually got going. */
+  private watchdog(tries = 6) {
+    if (tries <= 0) return;
+    setTimeout(() => {
+      this.resume();
+      if (!this.music?.playing) this.watchdog(tries - 1);
+    }, 1500);
   }
 
   setMuted(m: boolean) {

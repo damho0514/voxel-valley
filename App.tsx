@@ -125,7 +125,7 @@ export default function App() {
     setProfile(p);
     AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p)).catch(() => {});
   };
-  const go = (m: Mode) => { sound.play('tap'); setMode(m); };
+  const go = (m: Mode) => { sound.resume(); sound.play('tap'); setMode(m); };
   const code = joinCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const info = SEASON_INFO[season];
   const hasSave = saved.has(season);
@@ -163,7 +163,7 @@ export default function App() {
 
         <View style={styles.seasonRow}>
           {SEASONS.map((s) => (
-            <Pressable key={s} testID={`season-${s}`} onPress={() => { sound.play('tap'); setSeason(s); }}
+            <Pressable key={s} testID={`season-${s}`} onPress={() => { sound.resume(); sound.play('tap'); setSeason(s); }}
               style={[styles.seasonCard, { borderColor: s === season ? 'white' : 'transparent', backgroundColor: SEASON_INFO[s].color }]}>
               <Text style={styles.seasonEmoji}>{SEASON_INFO[s].emoji}</Text>
               <Text style={styles.seasonName}>{SEASON_INFO[s].name}</Text>

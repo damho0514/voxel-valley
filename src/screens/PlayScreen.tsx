@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Platform, Pressable, ScrollView, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import * as THREE from 'three';
 import { sound } from '../audio/sound';
-import { Block, BLOCKS, Dimension, DIMENSION_INFO, SEASON_INFO } from '../game/blocks';
+import { Block, BLOCKS, Dimension, DIMENSION_INFO, Season, SEASON_INFO } from '../game/blocks';
 import { Bot, knockBack, makeAnimal, spawnAnimals, spawnBots, spawnRobots, SPECIES_INFO } from '../game/bots';
 import { Game, HudState, Input, REACH } from '../game/game';
 import { loadSave, Save, writeSave } from '../game/storage';
@@ -35,15 +35,15 @@ type Touch = { tap: { x: number; y: number } | null; hold: { x: number; y: numbe
 export default function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profile; onProfile: (p: Profile) => void; onExit: () => void }) {
   const inputRef = useRef<Input>({ moveX: 0, moveY: 0, lookDX: 0, lookDY: 0, jump: false, down: false, dig: false, placeTap: false });
   const [dim, setDim] = useState<Dimension>('valley');
-  const flash = useRef(new Animated.Value(0)).current;
-  const hurtFlash = useRef(new Animated.Value(0)).current;
+  const [flash] = useState(() => new Animated.Value(0));
+  const [hurtFlash] = useState(() => new Animated.Value(0));
   const [weapon, setWeapon] = useState(false);
   const weaponRef = useRef(false);
   const [hp, setHp] = useState(100);
   const animalsRef = useRef<Bot[]>([]);
   const petsRef = useRef<Bot[]>([]);
   const profileRef = useRef(profile);
-  profileRef.current = profile;
+  useEffect(() => { profileRef.current = profile; }, [profile]);
   const viewRef = useRef<VoxelRenderer | null>(null);
   const strikeRef = useRef<(hit: { x: number; y: number; z: number }) => void>(() => {});
   const [dragon, setDragon] = useState(false);
@@ -55,17 +55,20 @@ export default function Play({ mode, profile, onProfile, onExit }: { mode: Mode;
   const roomRef = useRef<RoomClient | null>(null);
   const botsRef = useRef<Bot[]>([]);
   const [hud, setHud] = useState<HudState | null>(null);
+  const hudReady = hud !== null;
   const [palette, setPalette] = useState<Block[]>([]);
   const [loading, setLoading] = useState<string | null>('계곡을 만드는 중...');
   const [status, setStatus] = useState<{ state: 'connecting' | 'online' | 'offline'; error?: string } | null>(null);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
   const { width, height } = useWindowDimensions();
   const screen = useRef({ width, height });
-  screen.current = { width, height };
+  useEffect(() => { screen.current = { width, height }; }, [width, height]);
   const alive = useRef(true);
   const sens = SENSITIVITY[profile.sensitivity ?? 1];
   const sensRef = useRef(sens.k);
-  sensRef.current = sens.k;
+  useEffect(() => { sensRef.current = sens.k; }, [sens.k]);
+  /** Who's around (bots, robots, pets) and the season, refreshed with the HUD. */
+  const [locals, setLocals] = useState<{ friends: { id: string; name: string; color: number }[]; robots: number; season?: Season }>({ friends: [], robots: 0 });
 
   // Settings take effect immediately.
   useEffect(() => {
@@ -73,7 +76,7 @@ export default function Play({ mode, profile, onProfile, onExit }: { mode: Mode;
     if (!g) return;
     g.steer = lookMode === 'steer';
     g.autoJump = true;
-  }, [lookMode, hud !== null]);
+  }, [lookMode, hudReady]);
 
   // Tilt aiming: integrate the gyroscope into turn input. In landscape the screen's "up" is the
   // device's ±x axis (which way depends on how the phone is held), its "right" is ∓y.
@@ -443,12 +446,20 @@ export default function Play({ mode, profile, onProfile, onExit }: { mode: Mode;
         lastHud = now;
         setHud(game.hud());
         setHp(Math.round(game.hp));
+        setLocals({
+          friends: [
+            ...botsRef.current.filter((b) => !b.robot).map((b) => ({ id: b.id, name: `${b.name} (봇)`, color: b.color })),
+            ...petsRef.current.map((p) => ({ id: p.id, name: `❤️ ${SPECIES_INFO[p.species!].name}`, color: p.color })),
+          ],
+          robots: botsRef.current.filter((b) => b.robot).length,
+          season: game.world.season,
+        });
         if (ready) setLoading(null);
       }
       requestAnimationFrame(frame);
     };
     frame();
-  }, [mode, profile, connect]);
+  }, [mode, profile, connect, flash, hurtFlash, onProfile]);
 
   /** Summon: the earth shakes, the dragon roars and swoops in, then torches a few spots by itself. */
   const summonDragon = () => {
@@ -491,14 +502,12 @@ export default function Play({ mode, profile, onProfile, onExit }: { mode: Mode;
   const shareCode = () => {
     if (code) Share.share({ message: `Voxel Valley에서 같이 놀자! 앱에서 방 코드 ${code} 입력하고 참가` }).catch(() => {});
   };
-  const robots = botsRef.current.filter((b) => b.robot).length;
   const roster = [
     ...players.map((p) => ({ ...p, name: (p.d ?? 0) !== dimCode(dim) ? `${p.name} (${DIMENSION_INFO[DIMS[p.d ?? 0]].name})` : p.name })),
-    ...botsRef.current.filter((b) => !b.robot).map((b) => ({ id: b.id, name: `${b.name} (봇)`, color: b.color })),
-    ...(robots ? [{ id: 'robots', name: `로봇 시민 ${robots}명`, color: 0xc9d0da }] : []),
-    ...petsRef.current.map((p) => ({ id: p.id, name: `❤️ ${SPECIES_INFO[p.species!].name}`, color: p.color })),
+    ...locals.friends,
+    ...(locals.robots ? [{ id: 'robots', name: `로봇 시민 ${locals.robots}명`, color: 0xc9d0da }] : []),
   ];
-  const season = gameRef.current?.world.season;
+  const season = locals.season;
 
   return (
     <View style={styles.root}>
