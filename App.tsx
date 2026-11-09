@@ -335,6 +335,18 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     };
     viewRef.current = view;
     if (__DEV__ && Platform.OS === 'web') (globalThis as { __vvView?: VoxelRenderer }).__vvView = view;
+    game.onAirJump = () => buzz(Haptics.ImpactFeedbackStyle.Light);
+    game.onWarp = () => {
+      view.shake(1.2, 1.5);
+      flash.setValue(1);
+      Animated.timing(flash, { toValue: 0, duration: 1600, useNativeDriver: false }).start();
+      buzz(Haptics.ImpactFeedbackStyle.Heavy);
+      setTimeout(() => buzz(Haptics.ImpactFeedbackStyle.Heavy), 180);
+    };
+    view.onCarPass = () => {
+      sound.play('whoosh');
+      buzz(Haptics.ImpactFeedbackStyle.Light);
+    };
     game.onDimension = (d) => {
       view.setWorld(game.world);
       view.setDimension(d, game.world.season);
@@ -351,7 +363,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     }
 
     const input = inputRef.current, touch = touchRef.current;
-    let last = Date.now(), lastHud = 0, ready = false, lastBreath = 0;
+    let last = Date.now(), lastHud = 0, ready = false, lastBreath = 0, lastRumble = 0, lastQuake = 0;
     /** The dragon breathes fire at a block; when the fire lands, the ground there is blasted. */
     const strike = (hit: { x: number; y: number; z: number }) => {
       const dragon = view.dragon;
@@ -393,6 +405,18 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       }
       game.update(dt, { ...input, dig: input.dig || !!touch.hold, placeTap: input.placeTap || (!!touch.tap && !dragonTap) }, ready);
       view.effects.setDig(game.dig, game.target?.x, game.target?.y, game.target?.z);
+      // Speed streaks + FOV kick when flying fast in space or air-jumping in the city.
+      view.setMotion(game.dim === 'space' ? game.velocity : game.dim === 'future' ? { x: 0, y: Math.max(0, game.body.vy) * 1.2, z: 0 } : { x: 0, y: 0, z: 0 }, dt);
+      // The black hole: the closer you drift, the harder the screen and the phone shake.
+      const pull = game.blackHolePull;
+      if (pull > 0.02) {
+        view.shake(0.15 + pull * 0.6, 0.15);
+        if (now - lastRumble > 650 - pull * 450) {
+          lastRumble = now;
+          buzz(pull > 0.6 ? Haptics.ImpactFeedbackStyle.Heavy : pull > 0.3 ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
+        }
+        if (now - lastQuake > 3000 && pull > 0.25) { lastQuake = now; sound.play('quake'); }
+      }
       view.dragon?.follow(new THREE.Vector3(game.body.x, game.body.y, game.body.z));
       input.lookDX = 0;
       input.lookDY = 0;
@@ -436,7 +460,11 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
             }
           }
         } else if (game.dim === 'space') {
-          near = '🌌 무중력: 조이스틱=바라보는 방향으로 추진 · ▲▼=위아래';
+          near = game.blackHolePull > 0.05
+            ? `⚠️ 블랙홀 중력권 ${Math.round(game.blackHolePull * 100)}% — 빠져나오려면 반대로 추진!`
+            : '🌌 무중력: 조이스틱=바라보는 방향으로 추진 · ▲ 톡톡=무한 점프 · ▼=아래';
+        } else if (game.dim === 'future' && Math.hypot(game.body.x - 1, game.body.z + 8) >= 7) {
+          near = '🚀 무한 점프: 공중에서도 점프를 계속 누르면 더 높이!';
         } else if (Math.hypot(game.body.x - 1, game.body.z + 8) < 7) {
           near = '🏞️ 계곡으로 돌아가는 문';
         }
@@ -552,7 +580,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       {dim === 'space' ? (
         <>
           <HoldButton label="▲" color="#6b5fd6" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
-          <HoldButton label="▼" color="#3d3f73" style={{ right: 26, bottom: 132 }} onChange={(h) => { inputRef.current.down = h; }} />
+          <HoldButton label="▼" color="#3d3f73" style={{ right: 122, bottom: 22 }} onChange={(h) => { inputRef.current.down = h; }} />
         </>
       ) : (
         <HoldButton label="점프" color="#56657a" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />

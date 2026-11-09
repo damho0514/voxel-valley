@@ -4,10 +4,12 @@ import { Platform } from 'react-native';
 import type { Dimension, Season } from '../game/blocks';
 import { buildChunkMesh, MeshArrays } from '../game/mesher';
 import { CHUNK, chunkKey, toChunk, World } from '../game/world';
+import { BLACK_HOLE, CITY_GROUND } from '../game/dimensions';
+import { BlackHole } from './blackhole';
 import { Dragon } from './dragon';
 import { BreakEffects } from './effects';
 import { Sky } from './sky';
-import { blockAtlas, waterTexture } from './textures';
+import { blockAtlas, glowTexture, waterTexture } from './textures';
 
 const SKY_PALETTE: Record<Season | 'future', { zenith: number; horizon: number }> = {
   spring: { zenith: 0x74b3ea, horizon: 0xf6e3ef },
@@ -198,6 +200,10 @@ export class VoxelRenderer {
     }
     this.extras = [];
     this.cars = [];
+    this.blackHole = null;
+    this.comets = [];
+    this.searchlights = [];
+    this.holos = [];
     this.setSeason(season);
     const fog = this.scene.fog as THREE.Fog;
     this.sky.setVisible(dim !== 'space');
@@ -210,6 +216,7 @@ export class VoxelRenderer {
       if (this.weather) { this.scene.remove(this.weather.points); this.weather = null; }
       fog.near = 40; fog.far = 70; this.camera.far = 170;
       this.buildCars();
+      this.buildCityFX();
     } else {
       if (this.weather) { this.scene.remove(this.weather.points); this.weather = null; }
       this.skyDay = SKY_SPACE.clone();
@@ -270,6 +277,119 @@ export class VoxelRenderer {
     const sun = new THREE.Mesh(new THREE.SphereGeometry(45, 32, 16), new THREE.MeshBasicMaterial({ color: 0xfff2c8, fog: false }));
     sun.position.set(-200, 420, 520);
     this.addExtra(sun);
+
+    this.blackHole = new BlackHole(BLACK_HOLE.x, BLACK_HOLE.y, BLACK_HOLE.z, BLACK_HOLE.horizon);
+    this.addExtra(this.blackHole.group);
+
+    // Nebulae: huge soft clouds of colour far away.
+    const nebula = (inner: number, outer: number, x: number, y: number, z: number, size: number) => {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(inner, outer), blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0.35 }));
+      sp.position.set(x, y, z);
+      sp.scale.set(size, size * 0.7, 1);
+      this.addExtra(sp);
+    };
+    nebula(0xb07cff, 0x3a1f7a, -520, 160, 260, 520);
+    nebula(0x4fe3ff, 0x123a6a, 480, 60, -420, 600);
+    nebula(0xff7ab8, 0x5a1a4a, 120, -260, -560, 480);
+
+    // Comets: bright heads with fading tails, crossing the sky now and then.
+    for (let i = 0; i < 3; i++) {
+      const head = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(0xffffff, 0x9fdcff), blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+      head.scale.set(6, 6, 1);
+      const n = 40, tail = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ size: 2.2, color: 0xbfe8ff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+      tail.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+      tail.frustumCulled = false;
+      this.addExtra(head);
+      this.addExtra(tail);
+      this.comets.push({ head, tail, t: i * 7, period: 18 + i * 5, seed: i });
+    }
+  }
+
+  private blackHole: BlackHole | null = null;
+  private comets: { head: THREE.Sprite; tail: THREE.Points; t: number; period: number; seed: number }[] = [];
+  private searchlights: THREE.Mesh[] = [];
+  private holos: { mesh: THREE.Mesh; tex: THREE.DataTexture }[] = [];
+  private carPassAt = 0;
+  /** A flying car just whooshed past close by. */
+  onCarPass: () => void = () => {};
+
+  /** Searchlights sweeping the sky and holographic billboards hanging over the streets. */
+  private buildCityFX() {
+    const G = CITY_GROUND;
+    for (const [x, z] of [[-10, -12], [10, -12], [-10, 12], [10, 12]]) {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(5, 60, 20, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0x9ff6ff, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      cone.geometry.translate(0, -30, 0); // pivot at the tip, beam pointing up from the lamp
+      cone.rotation.x = Math.PI;
+      cone.position.set(x, G + 1, z);
+      this.addExtra(cone);
+      this.searchlights.push(cone);
+    }
+    const colors = [[0x5ff2ff, 0xff6f91], [0xffd166, 0xa47bff], [0x7cf29c, 0x5ff2ff]];
+    colors.forEach(([a, b], i) => {
+      const n = 64, data = new Uint8Array(n * n * 4);
+      const A = new THREE.Color(a), B = new THREE.Color(b);
+      for (let y = 0; y < n; y++)
+        for (let x = 0; x < n; x++) {
+          const frame = x < 2 || y < 2 || x > n - 3 || y > n - 3;
+          const bar = Math.floor(y / 8) % 2 === 0;
+          const glyph = ((x * 7 + y * 13 + i * 5) % 11) < 4 && x > 6 && x < n - 6 && y > 10 && y < n - 10;
+          const c = frame ? A : glyph ? B.clone().lerp(new THREE.Color(1, 1, 1), 0.3) : A.clone().multiplyScalar(bar ? 0.35 : 0.2);
+          const o = (y * n + x) * 4;
+          data[o] = c.r * 255; data[o + 1] = c.g * 255; data[o + 2] = c.b * 255; data[o + 3] = frame ? 230 : glyph ? 200 : 90;
+        }
+      const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.magFilter = THREE.NearestFilter;
+      tex.needsUpdate = true;
+      const holo = new THREE.Mesh(new THREE.PlaneGeometry(14, 8),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      holo.position.set(-22 + i * 22, G + 18 + i * 3, 24 + (i % 2) * 10);
+      holo.rotation.y = Math.PI + (i - 1) * 0.4;
+      this.addExtra(holo);
+      this.holos.push({ mesh: holo, tex });
+    });
+  }
+
+  // Warp streaks: lines that stream past when you're moving fast, plus a field-of-view kick.
+  private streaks: THREE.LineSegments | null = null;
+  private streakPts = new Float32Array(90 * 3);
+  private fovKick = 0;
+
+  /** Feed the player's velocity each frame (for speed streaks and FOV kick). */
+  setMotion(v: { x: number; y: number; z: number }, dt: number) {
+    const speed = Math.hypot(v.x, v.y, v.z);
+    const want = Math.min(14, Math.max(0, speed - 5) * 1.4);
+    this.fovKick += (want - this.fovKick) * Math.min(1, dt * 4);
+    this.camera.fov = 72 + this.fovKick;
+    this.camera.updateProjectionMatrix();
+    if (!this.streaks) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(90 * 6), 3));
+      this.streaks = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xdff6ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+      this.streaks.frustumCulled = false;
+      this.scene.add(this.streaks);
+      for (let i = 0; i < 90; i++) this.streakPts.set([(Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30], i * 3);
+    }
+    const mat = this.streaks.material as THREE.LineBasicMaterial;
+    mat.opacity = Math.min(0.6, Math.max(0, speed - 6) / 10);
+    if (mat.opacity <= 0.01) { this.streaks.visible = false; return; }
+    this.streaks.visible = true;
+    const c = this.camera.position, pos = this.streaks.geometry.attributes.position as THREE.BufferAttribute;
+    const n = { x: v.x / speed, y: v.y / speed, z: v.z / speed }, len = 0.6 + speed * 0.25;
+    for (let i = 0; i < 90; i++) {
+      const j = i * 3;
+      for (let k = 0; k < 3; k++) {
+        const vk = k === 0 ? v.x : k === 1 ? v.y : v.z;
+        let p = this.streakPts[j + k] - vk * dt * 2.5;
+        p = ((p + 15) % 30 + 30) % 30 - 15; // wrap in a box around the camera
+        this.streakPts[j + k] = p;
+      }
+      const px = c.x + this.streakPts[j], py = c.y + this.streakPts[j + 1], pz = c.z + this.streakPts[j + 2];
+      pos.setXYZ(i * 2, px, py, pz);
+      pos.setXYZ(i * 2 + 1, px - n.x * len, py - n.y * len, pz - n.z * len);
+    }
+    pos.needsUpdate = true;
   }
 
   private buildCars() {
@@ -312,6 +432,40 @@ export class VoxelRenderer {
       car.mesh.position.y += Math.sin(this.clockCars * 2 + car.offset) * 0.15;
     }
     this.portalMat.opacity = 0.55 + 0.2 * Math.sin(this.clockCars * 3);
+    // Cars that pass within a few blocks of you: whoosh.
+    for (const car of this.cars) {
+      if (car.mesh.position.distanceTo(c) < 6 && this.clockCars - this.carPassAt > 1.2) {
+        this.carPassAt = this.clockCars;
+        this.onCarPass();
+      }
+    }
+    this.blackHole?.update(dt, this.camera);
+    for (const cm of this.comets) {
+      cm.t += dt;
+      const u = (cm.t % cm.period) / cm.period; // 0..1 across the sky
+      const a = cm.seed * 2.1;
+      const from = new THREE.Vector3(Math.cos(a) * 500, 200 + cm.seed * 60, Math.sin(a) * 500);
+      const to = new THREE.Vector3(-Math.cos(a + 0.8) * 500, 40 - cm.seed * 30, -Math.sin(a + 0.8) * 500);
+      const head = from.clone().lerp(to, u);
+      cm.head.position.copy(head);
+      const pos = cm.tail.geometry.attributes.position as THREE.BufferAttribute;
+      const back = from.clone().sub(to).normalize();
+      for (let i = 0; i < pos.count; i++) {
+        const p = head.clone().addScaledVector(back, i * 2.2).add(new THREE.Vector3(Math.sin(i * 1.7) * 0.6, Math.cos(i * 2.3) * 0.6, 0));
+        pos.setXYZ(i, p.x, p.y, p.z);
+      }
+      pos.needsUpdate = true;
+      (cm.tail.material as THREE.PointsMaterial).opacity = 0.7 * Math.sin(u * Math.PI);
+      (cm.head.material as THREE.SpriteMaterial).opacity = Math.sin(u * Math.PI);
+    }
+    this.searchlights.forEach((s, i) => {
+      s.rotation.x = Math.PI + Math.sin(this.clockCars * 0.5 + i * 1.7) * 0.45;
+      s.rotation.z = Math.cos(this.clockCars * 0.4 + i * 2.3) * 0.45;
+    });
+    for (const h of this.holos) {
+      h.tex.offset.y = (h.tex.offset.y + dt * 0.15) % 1;
+      (h.mesh.material as THREE.MeshBasicMaterial).opacity = 0.75 + 0.25 * Math.sin(this.clockCars * 7 + h.mesh.position.x);
+    }
   }
   private clockCars = 0;
   private dirty = new Set<string>();

@@ -185,6 +185,11 @@ def main():
     tone(b, 0, 3.0, 38, vol=0.4, attack=0.5, release=1.2)
     save('quake.wav', b, peak=0.8)
 
+    b = blank(1.1)  # a flying car whooshing past: noise swelling and falling with a pitch drop
+    noise(b, 0, 1.1, vol=0.8, smooth=0.75, sweep=0.93, attack=0.45, release=0.55, seed=91)
+    tone(b, 0, 1.0, 420, vol=0.12, freq_end=180, attack=0.4, release=0.5)
+    save('whoosh.wav', b, peak=0.6)
+
     save('future.wav', future_music(), peak=0.5)
     save('space.wav', space_music(), peak=0.55)
 

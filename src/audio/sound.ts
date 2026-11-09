@@ -17,6 +17,7 @@ import roarWav from '../../assets/sounds/roar.wav';
 import fireWav from '../../assets/sounds/fire.wav';
 import boomWav from '../../assets/sounds/boom.wav';
 import quakeWav from '../../assets/sounds/quake.wav';
+import whooshWav from '../../assets/sounds/whoosh.wav';
 import futureWav from '../../assets/sounds/future.wav';
 import spaceWav from '../../assets/sounds/space.wav';
 import type { Dimension } from '../game/blocks';
@@ -39,6 +40,7 @@ const FILES = {
   fire: fireWav,
   boom: boomWav,
   quake: quakeWav,
+  whoosh: whooshWav,
 };
 const TRACKS: Record<Dimension, number> = { valley: musicWav, future: futureWav, space: spaceWav };
 const TRACK_VOLUME: Record<Dimension, number> = { valley: 0.35, future: 0.3, space: 0.5 };
@@ -47,7 +49,7 @@ export type Sfx = Exclude<FileName, 'step1' | 'step2'> | 'step';
 
 const VOLUME: Record<FileName, number> = {
   dig: 0.5, break: 0.8, place: 0.7, step1: 0.35, step2: 0.35, jump: 0.4, splash: 0.7, join: 0.6, leave: 0.5, tap: 0.4,
-  portal: 0.8, thrust: 0.25, roar: 1, fire: 0.8, boom: 0.9, quake: 0.9,
+  portal: 0.8, thrust: 0.25, roar: 1, fire: 0.8, boom: 0.9, quake: 0.9, whoosh: 0.8,
 };
 const MUTE_KEY = 'voxel-valley-go/muted';
 

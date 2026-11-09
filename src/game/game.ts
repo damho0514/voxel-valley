@@ -1,5 +1,5 @@
 import { Block, BLOCKS, Dimension, isReplaceable, paletteFor, PORTAL_TARGET } from './blocks';
-import { arrival } from './dimensions';
+import { arrival, BLACK_HOLE } from './dimensions';
 import { Body, collides, EYE_HEIGHT, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
 import { Hit, raycast } from './raycast';
 import { Save } from './storage';
@@ -43,6 +43,12 @@ export class Game {
   /** Velocity while floating in space. */
   private vel = { x: 0, y: 0, z: 0 };
   private portalCooldown = 0;
+  private prevJump = false;
+  /** 0..1: how hard the black hole is pulling right now (for rumble and HUD). */
+  blackHolePull = 0;
+  get velocity() {
+    return this.vel;
+  }
   /** Hop up single steps automatically while walking (like most mobile block games). */
   autoJump = true;
   /** "Easy turning": the joystick's left/right turns you instead of side-stepping. */
@@ -70,6 +76,10 @@ export class Game {
   onSound: (s: SoundName) => void = () => {};
   /** A block was dug out (for the break effect). */
   onBreak: (x: number, y: number, z: number, b: Block) => void = () => {};
+  /** Mid-air jumps (future city), thruster kicks (space). */
+  onAirJump: () => void = () => {};
+  /** Fell into the black hole: thrown back out at the station. */
+  onWarp: () => void = () => {};
   /** Called after stepping through a gate into another dimension. */
   onDimension: (dim: Dimension) => void = () => {};
 
@@ -187,8 +197,10 @@ export class Game {
       }
     }
 
+    const jumpPressed = input.jump && !this.prevJump;
+    this.prevJump = input.jump;
     if (this.dim === 'space') {
-      this.fly(dt, input);
+      this.fly(dt, input, jumpPressed);
       this.aim();
       this.updateDig(dt, input.dig);
       if (input.placeTap) this.place();
@@ -217,6 +229,11 @@ export class Game {
       if (this.body.onGround && input.jump) {
         this.body.vy = JUMP_SPEED;
         this.onSound('jump');
+      } else if (jumpPressed && this.dim === 'future' && !this.body.onGround) {
+        // Infinite jump in the future city: every tap in mid-air is another boost upward.
+        this.body.vy = JUMP_SPEED;
+        this.onSound('jump');
+        this.onAirJump();
       }
       this.body.vy += GRAVITY * dt;
     }
@@ -261,7 +278,7 @@ export class Game {
    * Zero-gravity flight: thrust along where you look (joystick), straight up/down (buttons),
    * with gentle drag so you drift to a stop.
    */
-  private fly(dt: number, input: Input) {
+  private fly(dt: number, input: Input, jumpPressed: boolean) {
     const d = this.lookDir();
     const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw); // right vector
     const up = (input.jump ? 1 : 0) - (input.down ? 1 : 0);
@@ -272,8 +289,34 @@ export class Game {
     v.z += (d.z * input.moveY + rz * input.moveX) * thrust * dt;
     const drag = Math.exp(-dt * 0.9);
     v.x *= drag; v.y *= drag; v.z *= drag;
-    const speed = Math.hypot(v.x, v.y, v.z), max = 10;
+    // Infinite jump in space: each tap of ▲ is a sharp kick upward (on top of holding thrust).
+    if (jumpPressed) {
+      v.y += 7;
+      this.onSound('thrust');
+      this.onAirJump();
+    }
+    const speed = Math.hypot(v.x, v.y, v.z), max = 12;
     if (speed > max) { v.x *= max / speed; v.y *= max / speed; v.z *= max / speed; }
+    // The black hole pulls harder the closer you get (and can drag you past the speed limit).
+    const bh = BLACK_HOLE;
+    const dx = bh.x - this.body.x, dy = bh.y - this.body.y, dz = bh.z - this.body.z;
+    const dist = Math.hypot(dx, dy, dz);
+    this.blackHolePull = dist < bh.reach ? Math.min(1, ((bh.reach - dist) / (bh.reach - bh.horizon)) ** 1.5) : 0;
+    if (this.blackHolePull > 0) {
+      const a = (4 + 40 * this.blackHolePull) * dt / dist;
+      v.x += dx * a; v.y += dy * a; v.z += dz * a;
+    }
+    if (dist < bh.horizon) {
+      // Across the event horizon: spat out at the station.
+      const a2 = arrival(this.world, 'space');
+      Object.assign(this.body, { x: a2.pos[0], y: a2.pos[1], z: a2.pos[2], vy: 0 });
+      this.vel = { x: 0, y: 0, z: 0 };
+      this.yaw = a2.yaw;
+      this.blackHolePull = 0;
+      this.onSound('portal');
+      this.onWarp();
+      return;
+    }
     if ((input.moveX || input.moveY || up) && Math.random() < dt * 4) this.onSound('thrust');
     const before = { x: this.body.x, y: this.body.y, z: this.body.z };
     move(this.world, this.body, v.x * dt, v.y * dt, v.z * dt);
@@ -282,7 +325,7 @@ export class Game {
     if (Math.abs(this.body.y - before.y) < Math.abs(v.y * dt) * 0.5) v.y = 0;
     if (Math.abs(this.body.z - before.z) < Math.abs(v.z * dt) * 0.5) v.z = 0;
     // Drifting too far out: a soft tether back toward the station.
-    if (this.body.y < -30 || this.body.y > 90) v.y += (this.body.y < 0 ? 1 : -1) * 20 * dt;
+    if (this.body.y < -30 || this.body.y > 110) v.y += (this.body.y < 0 ? 1 : -1) * 20 * dt;
   }
 
   private aim() {

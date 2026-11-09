@@ -11,6 +11,9 @@ const CELL = 32; // one asteroid per cell in space
 
 export type Placed = [x: number, y: number, z: number, b: Block];
 
+/** The black hole hanging in front of the space station (visible from the arrival point). */
+export const BLACK_HOLE = { x: 0, y: 44, z: 175, horizon: 16, reach: 130 };
+
 const mod = (a: number, b: number) => ((a % b) + b) % b;
 
 /**
