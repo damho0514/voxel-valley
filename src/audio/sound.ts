@@ -68,6 +68,8 @@ class Sound {
   private music: AudioPlayer | null = null;
   private track: Dimension = 'valley';
   private loaded = false;
+  /** The audio session is set up and players can be created. */
+  private ready = false;
   private stepFlip = false;
   muted = false;
   musicWanted = false;
@@ -81,17 +83,41 @@ class Sound {
       // mixing with whatever else is playing.
       await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
       await setIsAudioActiveAsync(true);
-      for (const name of Object.keys(FILES) as FileName[]) {
-        const players = [0, 1, 2].map(() => {
-          const p = createAudioPlayer(FILES[name]);
-          p.volume = VOLUME[name];
-          return p;
-        });
-        this.pools.set(name, { players, next: 0 });
-      }
+      // The title screen only needs taps and music; the rest (60 players in all) are created a few
+      // at a time afterwards so they don't hold up startup. play() also creates a pool on demand.
+      this.ready = true;
+      this.pool('tap');
       this.makeMusic();
+      const rest = (Object.keys(FILES) as FileName[]).filter((n) => !this.pools.has(n));
+      const next = () => {
+        const name = rest.shift();
+        if (!name) return;
+        this.pool(name);
+        setTimeout(next, 16);
+      };
+      setTimeout(next, 300);
     } catch (e) {
       console.warn('audio unavailable', e);
+    }
+  }
+
+  /** The round-robin players for one sound, created the first time they're needed. */
+  private pool(name: FileName) {
+    let pool = this.pools.get(name);
+    if (pool) return pool.players.length ? pool : null;
+    try {
+      const players = [0, 1, 2].map(() => {
+        const p = createAudioPlayer(FILES[name]);
+        p.volume = VOLUME[name];
+        return p;
+      });
+      pool = { players, next: 0 };
+      this.pools.set(name, pool);
+      return pool;
+    } catch (e) {
+      console.warn('audio unavailable', name, e);
+      this.pools.set(name, { players: [], next: 0 }); // don't retry on every play
+      return null;
     }
   }
 
@@ -99,7 +125,8 @@ class Sound {
     if (this.muted) return;
     if (sfx === 'step') this.stepFlip = !this.stepFlip;
     const name: FileName = sfx === 'step' ? (this.stepFlip ? 'step1' : 'step2') : sfx;
-    const pool = this.pools.get(name);
+    // Before load() has set up the audio session, stay silent (as before) rather than create players.
+    const pool = this.ready ? this.pool(name) : null;
     if (!pool) return;
     const p = pool.players[pool.next];
     pool.next = (pool.next + 1) % pool.players.length;
