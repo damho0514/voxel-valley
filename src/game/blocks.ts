@@ -33,9 +33,11 @@ export enum Block {
   Asteroid = 27,
   Crystal = 28,
   Station = 29,
+  Ember = 30,
+  Ash = 31,
 }
 
-export const BLOCK_COUNT = 30;
+export const BLOCK_COUNT = 32;
 
 /** The valley (seasonal), the future city, and outer space. */
 export type Dimension = 'valley' | 'future' | 'space';
@@ -120,6 +122,8 @@ export const BLOCKS: Record<Block, BlockInfo> = {
   [Block.Asteroid]: { name: '소행성 암석', top: rgb(0x7a7186), side: rgb(0x6a6276), bottom: rgb(0x5c5568), solid: true, opaque: true, breakable: true, hardness: 1.4 },
   [Block.Crystal]: { name: '우주 수정', ...same(0xc3a3ff), solid: true, opaque: true, breakable: true, hardness: 0.8, glow: true },
   [Block.Station]: { name: '정거장 패널', ...same(0xe6eaf0), solid: true, opaque: true, breakable: true, hardness: 1.2 },
+  [Block.Ember]: { name: '불씨', ...same(0xff7a3d), solid: true, opaque: true, breakable: true, hardness: 0.3, glow: true },
+  [Block.Ash]: { name: '잿더미', ...same(0x4a4448), solid: true, opaque: true, breakable: true, hardness: 0.4 },
 };
 
 const BASE_PALETTE: Block[] = [Block.Moss, Block.Soil, Block.Stone, Block.Sand, Block.Wood, Block.Plank, Block.Clay, Block.Glass];

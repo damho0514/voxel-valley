@@ -40,6 +40,8 @@ export class Game {
   /** Velocity while floating in space. */
   private vel = { x: 0, y: 0, z: 0 };
   private portalCooldown = 0;
+  /** Hop up single steps automatically while walking (like most mobile block games). */
+  autoJump = true;
   yaw = 0;
   pitch = 0;
   selected = 0;
@@ -191,7 +193,21 @@ export class Game {
       this.body.vy += GRAVITY * dt;
     }
     const bx = this.body.x, bz = this.body.z;
+    const wasOnGround = this.body.onGround;
     move(this.world, this.body, mx, this.body.vy * dt, mz);
+    // Auto-jump: walking into a one-block step (with headroom above it) hops onto it.
+    const want = Math.hypot(mx, mz);
+    if (this.autoJump && !swim && wasOnGround && want > 0.02) {
+      const got = Math.hypot(this.body.x - bx, this.body.z - bz);
+      if (got < want * 0.5) {
+        const ax = this.body.x + (mx / want) * 0.5, az = this.body.z + (mz / want) * 0.5;
+        const fy = Math.floor(this.body.y);
+        const step = this.world.isSolid(Math.floor(ax), fy, Math.floor(az));
+        const clear = !collides(this.world, this.body.x, this.body.y + 1.05, this.body.z) &&
+          !this.world.isSolid(Math.floor(ax), fy + 1, Math.floor(az)) && !this.world.isSolid(Math.floor(ax), fy + 2, Math.floor(az));
+        if (step && clear) this.body.vy = JUMP_SPEED;
+      }
+    }
     if (this.body.onGround && !swim) {
       this.stride += Math.hypot(this.body.x - bx, this.body.z - bz);
       if (this.stride > 1.7) {
@@ -292,6 +308,56 @@ export class Game {
     this.onSound('place');
     this.onBlockChanged(x, z);
     this.onEdit(x, y, z, b);
+  }
+
+  /** First solid block along a direction from the eye, far reach (for dragon fire). */
+  farHit(dir: { x: number; y: number; z: number }, reach = 120): Hit | null {
+    const e = this.eye();
+    return raycast(this.world, e.x, e.y, e.z, dir.x, dir.y, dir.z, reach);
+  }
+
+  /** A random spot on the ground 10–28 blocks away (for the dragon's own strikes). */
+  randomGroundTarget(): { x: number; y: number; z: number } | null {
+    for (let tries = 0; tries < 12; tries++) {
+      const a = Math.random() * Math.PI * 2, r = 10 + Math.random() * 18;
+      const x = Math.floor(this.body.x + Math.cos(a) * r), z = Math.floor(this.body.z + Math.sin(a) * r);
+      let y = HEIGHT - 1;
+      while (y > 0 && !this.world.isSolid(x, y, z)) y--;
+      if (y > 0) return { x, y, z };
+    }
+    return null;
+  }
+
+  /**
+   * Blows a crater of radius r at (cx,cy,cz): blocks become air, the crater floor smoulders with
+   * embers and ash. Gates and bedrock survive, and so does everything within 4 blocks of the
+   * player — the dragon never hurts you. Returns how many blocks changed.
+   */
+  blast(cx: number, cy: number, cz: number, r: number): number {
+    const p = this.body;
+    const safe = (x: number, y: number, z: number) => Math.hypot(x + 0.5 - p.x, y + 0.5 - (p.y + 0.9), z + 0.5 - p.z) < 4.5;
+    let changed = 0;
+    const set = (x: number, y: number, z: number, b: Block) => {
+      if (this.world.get(x, y, z) === b) return;
+      this.world.set(x, y, z, b);
+      this.onBlockChanged(x, z);
+      this.onEdit(x, y, z, b);
+      changed++;
+    };
+    const R = Math.ceil(r + 1);
+    for (let x = cx - R; x <= cx + R; x++)
+      for (let y = Math.max(1, cy - R); y <= Math.min(HEIGHT - 1, cy + R); y++)
+        for (let z = cz - R; z <= cz + R; z++) {
+          const d = Math.hypot(x - cx, (y - cy) * 1.2, z - cz) + (Math.random() - 0.5) * 0.8;
+          if (d > r + 0.8) continue;
+          const b = this.world.get(x, y, z);
+          const info = BLOCKS[b];
+          if (b === Block.Air || b === Block.Water || !info.breakable || info.portal || safe(x, y, z)) continue;
+          if (d <= r) set(x, y, z, Block.Air);
+          else if (y <= cy) set(x, y, z, Math.random() < 0.35 ? Block.Ember : Block.Ash); // scorched rim
+        }
+    if (changed) this.dirty = true;
+    return changed;
   }
 
   /** A block changed by another player in the room. */

@@ -3,7 +3,7 @@
 
 export const MAX_PLAYERS = 8;
 export const WORLD_HEIGHT = 48;
-export const BLOCK_TYPES = 30; // BLOCK_COUNT in src/game/blocks.ts
+export const BLOCK_TYPES = 32; // BLOCK_COUNT in src/game/blocks.ts
 export const SEASON_NAMES = ['spring', 'summer', 'autumn', 'winter'] as const;
 export type SeasonName = (typeof SEASON_NAMES)[number];
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

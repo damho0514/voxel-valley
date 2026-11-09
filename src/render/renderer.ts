@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import type { Dimension, Season } from '../game/blocks';
 import { buildChunkMesh, MeshArrays } from '../game/mesher';
 import { CHUNK, chunkKey, toChunk, World } from '../game/world';
+import { Dragon } from './dragon';
 
 /** Where another player is, as the renderer needs it. */
 export type Avatar = { id: string; color: number; x: number; y: number; z: number; yaw: number; robot?: boolean };
@@ -167,6 +168,9 @@ export class VoxelRenderer {
   setWorld(world: World) {
     for (const group of this.meshes.values()) this.dispose(group);
     this.meshes.clear();
+    this.dirty.clear();
+    this.dragon?.dispose();
+    this.dragon = null;
     this.world = world;
   }
 
@@ -293,6 +297,25 @@ export class VoxelRenderer {
     this.portalMat.opacity = 0.55 + 0.2 * Math.sin(this.clockCars * 3);
   }
   private clockCars = 0;
+  private dirty = new Set<string>();
+  private shakeLeft = 0;
+  private shakeAmp = 0;
+  dragon: Dragon | null = null;
+
+  /** Shakes the camera for `seconds` (an earthquake). */
+  shake(amp: number, seconds: number) {
+    this.shakeAmp = Math.max(this.shakeAmp, amp);
+    this.shakeLeft = Math.max(this.shakeLeft, seconds);
+  }
+
+  summonDragon(center: { x: number; y: number; z: number }) {
+    this.dragon?.dispose();
+    this.dragon = new Dragon(this.scene, new THREE.Vector3(center.x, Math.max(10, center.y - 10), center.z));
+  }
+
+  dismissDragon() {
+    this.dragon?.leave();
+  }
 
   /** 0..1 daylight tints the sky, fog and every block. */
   setDaylight(d: number) {
@@ -428,7 +451,7 @@ export class VoxelRenderer {
     this.meshes.set(key, group);
   }
 
-  /** Rebuilds the chunk holding (x,z) and any neighbour it touches. */
+  /** Marks the chunk holding (x,z), and any neighbour it touches, for a rebuild before the next frame. */
   blockChanged(x: number, z: number) {
     const cx = toChunk(x), cz = toChunk(z);
     const lx = x - cx * CHUNK, lz = z - cz * CHUNK;
@@ -437,15 +460,35 @@ export class VoxelRenderer {
     if (lx === CHUNK - 1) todo.add(chunkKey(cx + 1, cz));
     if (lz === 0) todo.add(chunkKey(cx, cz - 1));
     if (lz === CHUNK - 1) todo.add(chunkKey(cx, cz + 1));
-    for (const k of todo) if (this.meshes.has(k)) {
+    for (const k of todo) if (this.meshes.has(k)) this.dirty.add(k);
+  }
+
+  private flushDirty() {
+    for (const k of this.dirty) {
       const [a, b] = k.split(',').map(Number);
-      this.rebuild(a, b);
+      if (this.meshes.has(k)) this.rebuild(a, b);
     }
+    this.dirty.clear();
   }
 
   render(dt = 0) {
-    this.updateWeather(Math.min(dt, 0.1));
-    this.updateScenery(Math.min(dt, 0.1));
+    dt = Math.min(dt, 0.1);
+    this.flushDirty();
+    this.updateWeather(dt);
+    this.updateScenery(dt);
+    if (this.dragon) {
+      this.dragon.update(dt);
+      if (this.dragon.gone) this.dragon = null;
+    }
+    if (this.shakeLeft > 0) {
+      this.shakeLeft -= dt;
+      const a = this.shakeAmp * Math.min(1, this.shakeLeft);
+      this.camera.position.x += (Math.random() - 0.5) * a;
+      this.camera.position.y += (Math.random() - 0.5) * a;
+      this.camera.position.z += (Math.random() - 0.5) * a;
+      this.camera.rotation.z = (Math.random() - 0.5) * a * 0.05;
+      if (this.shakeLeft <= 0) { this.shakeAmp = 0; this.camera.rotation.z = 0; }
+    }
     this.renderer.render(this.scene, this.camera);
     this.gl.endFrameEXP();
   }

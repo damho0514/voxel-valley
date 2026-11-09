@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
+import * as Haptics from 'expo-haptics';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -15,6 +16,7 @@ import { DimCode, isRoomCode, newRoomCode, parseEditKey, PlayerInfo, RoomClient,
 
 const DIMS: Dimension[] = ['valley', 'future', 'space'];
 const dimCode = (d: Dimension) => DIMS.indexOf(d) as DimCode;
+import * as THREE from 'three';
 import { VoxelRenderer } from './src/render/renderer';
 import { HoldButton, Joystick, TouchPad } from './src/ui/controls';
 
@@ -25,7 +27,9 @@ const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 const PROFILE_KEY = 'voxel-valley-go/profile-v1';
 const AVATAR_COLORS = [0xf28b6c, 0x6cb4f2, 0x8bd17c, 0xc89cf0, 0xf2c94c, 0xf27fb2, 0x5fd0c4, 0xb0a08a];
 const SENSITIVITY = [{ label: '느림', k: 0.6 }, { label: '보통', k: 1 }, { label: '빠름', k: 1.5 }];
-type Profile = { name: string; color: number; sensitivity?: number };
+type Profile = { name: string; color: number; sensitivity?: number; autoJump?: boolean };
+
+const buzz = (style: Haptics.ImpactFeedbackStyle) => { if (Platform.OS !== 'web') Haptics.impactAsync(style).catch(() => {}); };
 
 /** solo: offline, saved per season. host: a new shared world. guest: someone else's world. */
 type Mode =
@@ -156,6 +160,9 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   const [dim, setDim] = useState<Dimension>('valley');
   const [hint, setHint] = useState<string | null>(null);
   const flash = useRef(new Animated.Value(0)).current;
+  const viewRef = useRef<VoxelRenderer | null>(null);
+  const strikeRef = useRef<(hit: { x: number; y: number; z: number }) => void>(() => {});
+  const [dragon, setDragon] = useState(false);
   const touchRef = useRef<Touch>({ tap: null, hold: null });
   const gameRef = useRef<Game | null>(null);
   const roomRef = useRef<RoomClient | null>(null);
@@ -179,7 +186,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   }, [mode.kind]);
 
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (s) => { if (s !== 'active') save(); });
+    const sub = AppState.addEventListener('change', (s) => { if (s !== 'active') save(); else sound.resume(); });
     const timer = setInterval(() => { if (gameRef.current?.dirty) { gameRef.current.dirty = false; save(); } }, 8000);
     return () => {
       alive.current = false;
@@ -272,7 +279,14 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     setDim(game.dim);
     game.onBlockChanged = (x, z) => view.blockChanged(x, z);
     game.onEdit = (x, y, z, b) => roomRef.current?.sendEdit(x, y, z, b, dimCode(game.dim));
-    game.onSound = (s) => sound.play(s);
+    game.onSound = (s) => {
+      sound.play(s);
+      if (s === 'place') buzz(Haptics.ImpactFeedbackStyle.Light);
+      else if (s === 'break') buzz(Haptics.ImpactFeedbackStyle.Medium);
+    };
+    game.autoJump = profile.autoJump ?? true;
+    viewRef.current = view;
+    if (__DEV__ && Platform.OS === 'web') (globalThis as { __vvView?: VoxelRenderer }).__vvView = view;
     game.onDimension = (d) => {
       view.setWorld(game.world);
       view.setDimension(d, game.world.season);
@@ -289,7 +303,20 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     }
 
     const input = inputRef.current, touch = touchRef.current;
-    let last = Date.now(), lastHud = 0, ready = false;
+    let last = Date.now(), lastHud = 0, ready = false, lastBreath = 0;
+    /** The dragon breathes fire at a block; when the fire lands, the ground there is blasted. */
+    const strike = (hit: { x: number; y: number; z: number }) => {
+      const dragon = view.dragon;
+      if (!dragon) return;
+      sound.play('fire');
+      dragon.breathe(new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5), () => {
+        game.blast(hit.x, hit.y, hit.z, 3.2);
+        sound.play('boom');
+        view.shake(0.45, 0.9);
+        buzz(Haptics.ImpactFeedbackStyle.Heavy);
+      });
+    };
+    strikeRef.current = strike;
     const frame = () => {
       if (!alive.current) return;
       const now = Date.now();
@@ -303,7 +330,15 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       const finger = touch.hold ?? touch.tap;
       const { width: w, height: h } = screen.current;
       game.aimRay = finger ? view.rayFromScreen((finger.x / w) * 2 - 1, -((finger.y / h) * 2 - 1)) : null;
-      game.update(dt, { ...input, dig: input.dig || !!touch.hold, placeTap: input.placeTap || !!touch.tap }, ready);
+      // With the dragon out, a tap tells it where to breathe fire instead of placing a block.
+      const dragonTap = !!(touch.tap && view.dragon);
+      if (dragonTap && now - lastBreath > 700) {
+        lastBreath = now;
+        const hit = game.farHit(game.aimRay ?? game.lookDir());
+        if (hit) strike(hit);
+      }
+      game.update(dt, { ...input, dig: input.dig || !!touch.hold, placeTap: input.placeTap || (!!touch.tap && !dragonTap) }, ready);
+      view.dragon?.follow(new THREE.Vector3(game.body.x, game.body.y, game.body.z));
       input.lookDX = 0;
       input.lookDY = 0;
       input.placeTap = false;
@@ -348,6 +383,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         } else if (Math.hypot(game.body.x - 1, game.body.z + 8) < 7) {
           near = '🏞️ 계곡으로 돌아가는 문';
         }
+        if (view.dragon) near = '🐉 화면을 톡 치면 용이 그곳에 불을 뿜어요 (내 주변은 안전)';
         setHint(near);
         if (ready) setLoading(null);
       }
@@ -356,7 +392,37 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     frame();
   }, [mode, profile, connect]);
 
-  const select = (i: number) => { sound.play('tap'); if (gameRef.current) gameRef.current.selected = i; };
+  /** Summon: the earth shakes, the dragon roars and swoops in, then torches a few spots by itself. */
+  const summonDragon = () => {
+    const view = viewRef.current, game = gameRef.current;
+    if (!view || !game) return;
+    if (view.dragon) {
+      view.dismissDragon();
+      sound.play('roar');
+      setDragon(false);
+      return;
+    }
+    view.summonDragon(game.body);
+    view.shake(0.7, 3.5);
+    sound.play('quake');
+    setTimeout(() => sound.play('roar'), 900);
+    if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    setDragon(true);
+    for (const delay of [3000, 4800, 6600]) {
+      setTimeout(() => {
+        const g = gameRef.current;
+        if (!alive.current || !viewRef.current?.dragon || !g) return;
+        const t = g.randomGroundTarget();
+        if (t) strikeRef.current(t);
+      }, delay);
+    }
+  };
+
+  const select = (i: number) => {
+    sound.play('tap');
+    if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+    if (gameRef.current) gameRef.current.selected = i;
+  };
   const code = mode.kind === 'solo' ? null : mode.code;
   const shareCode = () => {
     if (code) Share.share({ message: `Voxel Valley에서 같이 놀자! 앱에서 방 코드 ${code} 입력하고 참가` }).catch(() => {});
@@ -407,6 +473,17 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         ))}
       </View>
       <View style={styles.topRight}>
+        <Pressable testID="dragon" style={[styles.pill, dragon && { backgroundColor: 'rgba(196,48,61,0.8)' }]} onPress={summonDragon}>
+          <Text style={styles.pillText}>{dragon ? '🐉 돌려보내기' : '🐉 용 소환'}</Text>
+        </Pressable>
+        <Pressable testID="autojump" style={styles.pill}
+          onPress={() => {
+            const next = !(profile.autoJump ?? true);
+            onProfile({ ...profile, autoJump: next });
+            if (gameRef.current) gameRef.current.autoJump = next;
+          }}>
+          <Text style={styles.pillText}>{`자동점프 ${(profile.autoJump ?? true) ? '켬' : '끔'}`}</Text>
+        </Pressable>
         <Pressable testID="sens" style={styles.pill}
           onPress={() => onProfile({ ...profile, sensitivity: ((profile.sensitivity ?? 1) + 1) % SENSITIVITY.length })}>
           <Text style={styles.pillText}>{`감도 ${sens.label}`}</Text>
@@ -420,15 +497,13 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       </View>
 
       <Joystick onMove={(x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
-      <HoldButton label="캐기" color="#e07a6e" style={{ right: 118, bottom: 96 }} onChange={(h) => { inputRef.current.dig = h; }} />
-      <HoldButton label="놓기" color="#5fb37f" style={{ right: 28, bottom: 132 }} onChange={(h) => { if (h) inputRef.current.placeTap = true; }} />
       {dim === 'space' ? (
         <>
-          <HoldButton label="▲" color="#6b5fd6" style={{ right: 28, bottom: 36 }} onChange={(h) => { inputRef.current.jump = h; }} />
-          <HoldButton label="▼" color="#3d3f73" style={{ right: 104, bottom: 2 }} onChange={(h) => { inputRef.current.down = h; }} />
+          <HoldButton label="▲" color="#6b5fd6" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
+          <HoldButton label="▼" color="#3d3f73" style={{ right: 26, bottom: 132 }} onChange={(h) => { inputRef.current.down = h; }} />
         </>
       ) : (
-        <HoldButton label="점프" color="#56657a" style={{ right: 28, bottom: 36 }} onChange={(h) => { inputRef.current.jump = h; }} />
+        <HoldButton label="점프" color="#56657a" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
       )}
 
       <View style={styles.hotbar}>
@@ -499,14 +574,15 @@ const styles = StyleSheet.create({
   playerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   playerDot: { width: 10, height: 10, borderRadius: 5 },
   playerName: { color: 'white', fontSize: 13, fontWeight: '600' },
+  bigButton: { right: 22, bottom: 30, width: 88, height: 88, borderRadius: 44 },
   topRight: { position: 'absolute', top: 10, right: 14, flexDirection: 'row', gap: 8 },
   pill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(30,40,50,0.45)' },
   pillText: { color: 'white', fontWeight: '700' },
   hotbar: { position: 'absolute', bottom: 10, alignSelf: 'center', flexDirection: 'row', gap: 5, padding: 5,
     borderRadius: 14, backgroundColor: 'rgba(30,40,50,0.35)' },
-  slot: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' },
+  slot: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.12)' },
   slotSelected: { backgroundColor: 'rgba(255,255,255,0.6)' },
-  swatch: { width: 24, height: 24, borderRadius: 7 },
+  swatch: { width: 28, height: 28, borderRadius: 8 },
   selectedName: { position: 'absolute', bottom: 58, alignSelf: 'center', color: 'white', fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 3 },
   hint: { position: 'absolute', top: 54, alignSelf: 'center', color: 'white', fontSize: 14, fontWeight: '700', paddingHorizontal: 12,

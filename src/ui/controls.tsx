@@ -4,36 +4,53 @@ import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 
 const STICK = 120;
 
-/** Left thumb stick: reports a -1..1 vector (x right, y forward). */
+/**
+ * Floating thumb stick: put your thumb down anywhere in the left zone and the stick centres there
+ * (no hunting for a fixed pad). Reports a -1..1 vector (x right, y forward).
+ */
 export function Joystick({ onMove }: { onMove: (x: number, y: number) => void }) {
-  const [knob, setKnobState] = useState({ x: 0, y: 0 });
-  const setKnob = (x: number, y: number) => setKnobState({ x, y });
+  const [stick, setStick] = useState<{ cx: number; cy: number; x: number; y: number } | null>(null);
+  const center = useRef({ x: 0, y: 0 });
   const pan = usePanGesture({
     minDistance: 0,
     runOnJS: true,
+    onBegin: (e) => {
+      center.current = { x: e.x, y: e.y };
+      setStick({ cx: e.x, cy: e.y, x: 0, y: 0 });
+    },
     onUpdate: (e) => {
-      let dx = e.x - STICK / 2, dy = e.y - STICK / 2;
+      let dx = e.x - center.current.x, dy = e.y - center.current.y;
       const len = Math.hypot(dx, dy), max = STICK / 2;
       if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
-      onMove(dx / max, -dy / max);
-      setKnob(dx, dy);
+      // A small dead zone, then full speed is reached a bit before the rim.
+      const k = len < 6 ? 0 : 1 / (max * 0.85);
+      onMove(Math.max(-1, Math.min(1, dx * k)), Math.max(-1, Math.min(1, -dy * k)));
+      setStick({ cx: center.current.x, cy: center.current.y, x: dx, y: dy });
     },
     onFinalize: () => {
       onMove(0, 0);
-      setKnob(0, 0);
+      setStick(null);
     },
   });
   return (
     <GestureDetector gesture={pan}>
-      <View style={styles.stick} testID="joystick">
-        <View style={[styles.knob, { transform: [{ translateX: knob.x }, { translateY: knob.y }] }]} pointerEvents="none" />
+      <View style={styles.stickZone} testID="joystick">
+        {stick ? (
+          <View pointerEvents="none" style={[styles.stick, { left: stick.cx - STICK / 2, top: stick.cy - STICK / 2 }]}>
+            <View style={[styles.knob, { transform: [{ translateX: stick.x }, { translateY: stick.y }] }]} />
+          </View>
+        ) : (
+          <View pointerEvents="none" style={[styles.stick, styles.stickIdle]}>
+            <View style={styles.knob} />
+          </View>
+        )}
       </View>
     </GestureDetector>
   );
 }
 
 const TAP_SLOP = 12; // px a finger may wander and still count as a tap/hold
-const HOLD_MS = 260;
+const HOLD_MS = 220;
 
 /**
  * The play area. Drag to look around; tap a block to place onto it; press and hold a block
@@ -106,10 +123,12 @@ export function HoldButton({ label, color, onChange, style }: {
 }
 
 const styles = StyleSheet.create({
+  stickZone: { position: 'absolute', left: 0, bottom: 0, width: '38%', height: '72%' },
   stick: {
-    position: 'absolute', left: 36, bottom: 30, width: STICK, height: STICK, borderRadius: STICK / 2,
+    position: 'absolute', width: STICK, height: STICK, borderRadius: STICK / 2,
     backgroundColor: 'rgba(20,30,40,0.25)', alignItems: 'center', justifyContent: 'center',
   },
+  stickIdle: { left: 36, bottom: 30, opacity: 0.55 },
   knob: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.75)' },
   button: {
     position: 'absolute', width: 74, height: 74, borderRadius: 37, alignItems: 'center', justifyContent: 'center',

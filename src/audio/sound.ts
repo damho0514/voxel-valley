@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AudioPlayer, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { AudioPlayer, createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio';
 import digWav from '../../assets/sounds/dig.wav';
 import breakWav from '../../assets/sounds/break.wav';
 import placeWav from '../../assets/sounds/place.wav';
@@ -13,6 +13,10 @@ import tapWav from '../../assets/sounds/tap.wav';
 import musicWav from '../../assets/sounds/music.wav';
 import portalWav from '../../assets/sounds/portal.wav';
 import thrustWav from '../../assets/sounds/thrust.wav';
+import roarWav from '../../assets/sounds/roar.wav';
+import fireWav from '../../assets/sounds/fire.wav';
+import boomWav from '../../assets/sounds/boom.wav';
+import quakeWav from '../../assets/sounds/quake.wav';
 import futureWav from '../../assets/sounds/future.wav';
 import spaceWav from '../../assets/sounds/space.wav';
 import type { Dimension } from '../game/blocks';
@@ -31,6 +35,10 @@ const FILES = {
   tap: tapWav,
   portal: portalWav,
   thrust: thrustWav,
+  roar: roarWav,
+  fire: fireWav,
+  boom: boomWav,
+  quake: quakeWav,
 };
 const TRACKS: Record<Dimension, number> = { valley: musicWav, future: futureWav, space: spaceWav };
 const TRACK_VOLUME: Record<Dimension, number> = { valley: 0.35, future: 0.3, space: 0.5 };
@@ -39,7 +47,7 @@ export type Sfx = Exclude<FileName, 'step1' | 'step2'> | 'step';
 
 const VOLUME: Record<FileName, number> = {
   dig: 0.5, break: 0.8, place: 0.7, step1: 0.35, step2: 0.35, jump: 0.4, splash: 0.7, join: 0.6, leave: 0.5, tap: 0.4,
-  portal: 0.8, thrust: 0.25,
+  portal: 0.8, thrust: 0.25, roar: 1, fire: 0.8, boom: 0.9, quake: 0.9,
 };
 const MUTE_KEY = 'voxel-valley-go/muted';
 
@@ -61,7 +69,10 @@ class Sound {
     this.loaded = true;
     try {
       this.muted = (await AsyncStorage.getItem(MUTE_KEY)) === '1';
-      await setAudioModeAsync({ playsInSilentMode: false, interruptionMode: 'mixWithOthers' });
+      // Play even with the ring/silent switch on (a game is silent only via the in-app mute),
+      // mixing with whatever else is playing.
+      await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' });
+      await setIsAudioActiveAsync(true);
       for (const name of Object.keys(FILES) as FileName[]) {
         const players = [0, 1, 2].map(() => {
           const p = createAudioPlayer(FILES[name]);
@@ -115,6 +126,12 @@ class Sound {
   stopMusic() {
     this.musicWanted = false;
     try { this.music?.pause(); } catch {}
+  }
+
+  /** Back in the foreground: make sure the session is live and the music is running. */
+  resume() {
+    setIsAudioActiveAsync(true).catch(() => {});
+    if (this.musicWanted && !this.muted) try { this.music?.play(); } catch {}
   }
 
   setMuted(m: boolean) {

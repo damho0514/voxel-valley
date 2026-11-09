@@ -153,6 +153,38 @@ def main():
     noise(b, 0, 0.35, vol=0.5, smooth=0.9, sweep=0.97, attack=0.05, release=0.2, seed=41)
     save('thrust.wav', b, peak=0.35)
 
+    b = blank(2.4)  # dragon roar: a growl whose pitch rises then falls, with rasp
+    rng = random.Random(51)
+    phase = 0.0
+    for i in range(len(b)):
+        t = i / RATE
+        f = 70 + 90 * math.sin(math.pi * min(1, t / 2.2)) + 8 * math.sin(2 * math.pi * 23 * t)
+        phase += f / RATE
+        saw = 2 * (phase % 1.0) - 1
+        level = min(1, t / 0.25) * max(0.0, min(1, (2.4 - t) / 0.8))
+        b[i] += 0.5 * level * (saw * 0.7 + rng.uniform(-1, 1) * 0.35)
+    # Smooth the rasp a little (one-pole low-pass).
+    y = 0.0
+    for i in range(len(b)):
+        y += 0.25 * (b[i] - y)
+        b[i] = y
+    save('roar.wav', b, peak=0.8)
+
+    b = blank(1.3)  # fire breath: a roaring whoosh
+    noise(b, 0, 1.3, vol=0.8, smooth=0.6, sweep=0.85, attack=0.08, release=0.5, seed=61)
+    noise(b, 0, 1.3, vol=0.3, smooth=0.97, attack=0.1, release=0.5, seed=62)
+    save('fire.wav', b, peak=0.7)
+
+    b = blank(1.4)  # explosion
+    noise(b, 0, 1.4, vol=1.0, smooth=0.3, sweep=0.97, decay=0.35, seed=71)
+    tone(b, 0, 0.9, 70, vol=0.6, freq_end=35, decay=0.3)
+    save('boom.wav', b, peak=0.85)
+
+    b = blank(3.0)  # earthquake rumble
+    noise(b, 0, 3.0, vol=1.0, smooth=0.985, attack=0.4, release=1.2, seed=81)
+    tone(b, 0, 3.0, 38, vol=0.4, attack=0.5, release=1.2)
+    save('quake.wav', b, peak=0.8)
+
     save('future.wav', future_music(), peak=0.5)
     save('space.wav', space_music(), peak=0.55)
 
