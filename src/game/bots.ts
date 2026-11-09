@@ -1,5 +1,21 @@
 import { Body, collides, inWater, move } from './physics';
+import type { Season } from './blocks';
 import { World } from './world';
+
+export type Species = 'rabbit' | 'sheep' | 'fox' | 'penguin' | 'chick';
+export const SPECIES_INFO: Record<Species, { name: string; color: number; speed: number; hp: number }> = {
+  rabbit: { name: '토끼', color: 0xf3ece4, speed: 3.4, hp: 1 },
+  sheep: { name: '양', color: 0xfafaf5, speed: 1.8, hp: 1 },
+  fox: { name: '여우', color: 0xe8803a, speed: 3.0, hp: 1 },
+  penguin: { name: '펭귄', color: 0x2c3340, speed: 1.6, hp: 1 },
+  chick: { name: '병아리', color: 0xffd84a, speed: 2.2, hp: 1 },
+};
+const SEASON_ANIMALS: Record<Season, Species[]> = {
+  spring: ['rabbit', 'chick', 'sheep'],
+  summer: ['fox', 'sheep', 'chick'],
+  autumn: ['fox', 'rabbit', 'sheep'],
+  winter: ['penguin', 'rabbit', 'fox'],
+};
 
 const NAMES = ['토리', '모모', '라온'];
 const COLORS = [0xf2c94c, 0xf27fb2, 0x5fd0c4];
@@ -17,6 +33,14 @@ export class Bot {
   private timer = 0;
   private heading = 0;
   private stuck = 0;
+  hp = 3;
+  /** Set for animals. */
+  species?: Species;
+  /** A tamed animal: sticks close and follows you everywhere. */
+  pet = false;
+  /** Seconds left of the red "hit" flash. */
+  hitFlash = 0;
+  speed = SPEED;
 
   constructor(readonly id: string, readonly name: string, readonly color: number, x: number, y: number, z: number,
     private rand: () => number, readonly robot = false) {
@@ -26,7 +50,8 @@ export class Bot {
   update(world: World, dt: number, player: { x: number; y: number; z: number }) {
     const b = this.body;
     const toPlayer = Math.hypot(player.x - b.x, player.z - b.z);
-    if (toPlayer > LEASH || b.y < -5) {
+    this.hitFlash = Math.max(0, this.hitFlash - dt);
+    if (toPlayer > (this.pet ? 14 : LEASH) || b.y < -5) {
       const [x, y, z] = world.findSpawn(Math.floor(player.x + (this.rand() - 0.5) * 8), Math.floor(player.z + (this.rand() - 0.5) * 8));
       Object.assign(b, { x, y, z, vy: 0 });
       return;
@@ -38,9 +63,9 @@ export class Bot {
     let speed = 0;
     if (this.mode === 'follow') {
       this.heading = Math.atan2(-(player.x - b.x), -(player.z - b.z));
-      speed = toPlayer > 3 ? SPEED : 0;
+      speed = toPlayer > (this.pet ? 2.2 : 3) ? this.speed * (this.pet && toPlayer > 6 ? 1.4 : 1) : 0;
     } else if (this.mode === 'wander') {
-      speed = SPEED * 0.6;
+      speed = this.speed * 0.6;
     }
     // Turn smoothly toward the heading.
     let d = this.heading - this.yaw;
@@ -69,8 +94,9 @@ export class Bot {
 
   private pickMode(toPlayer: number) {
     const r = this.rand();
-    // Robot citizens mostly go about their business; friends stick closer.
-    if (toPlayer > 10 || r < (this.robot ? 0.12 : 0.35)) {
+    // Pets stay at your heels; robots and wild animals mostly go about their business.
+    const followChance = this.pet ? 0.85 : this.robot || this.species ? 0.12 : 0.35;
+    if (toPlayer > (this.pet ? 4 : 10) || r < followChance) {
       this.mode = 'follow';
       this.timer = 3 + this.rand() * 4;
     } else if (r < 0.75) {
@@ -105,4 +131,35 @@ export function spawnRobots(world: World, near: { x: number; z: number }, count 
     const [x, y, z] = world.findSpawn(Math.floor(near.x + Math.cos(a) * 9), Math.floor(near.z + 6 + Math.sin(a) * 9));
     return new Bot(`robot-${i}`, `R-${String(i + 1).padStart(2, '0')}`, ROBOT_COLORS[i % ROBOT_COLORS.length], x, y, z, rand, true);
   });
+}
+
+/** Knock an entity back from a hit. */
+export function knockBack(bot: Bot, from: { x: number; z: number }) {
+  const dx = bot.body.x - from.x, dz = bot.body.z - from.z, d = Math.hypot(dx, dz) || 1;
+  bot.body.vy = 5;
+  bot.body.x += (dx / d) * 0.4;
+  bot.body.z += (dz / d) * 0.4;
+  bot.hitFlash = 0.25;
+}
+
+/** Wild animals of the season, scattered around you. */
+export function spawnAnimals(world: World, near: { x: number; z: number }, season: Season, count = 6): Bot[] {
+  let s = ((world.seed ^ 0x2545f491) + Math.floor(near.x) * 31 + Math.floor(near.z)) >>> 0;
+  const rand = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+  const kinds = SEASON_ANIMALS[season];
+  return Array.from({ length: count }, (_, i) => {
+    const sp = kinds[i % kinds.length];
+    const a = rand() * Math.PI * 2, r = 8 + rand() * 14;
+    const [x, y, z] = world.findSpawn(Math.floor(near.x + Math.cos(a) * r), Math.floor(near.z + Math.sin(a) * r));
+    return makeAnimal(`animal-${sp}-${i}-${Math.floor(rand() * 1e6)}`, sp, x, y, z, rand);
+  });
+}
+
+export function makeAnimal(id: string, sp: Species, x: number, y: number, z: number, rand: () => number = Math.random): Bot {
+  const info = SPECIES_INFO[sp];
+  const bot = new Bot(id, info.name, info.color, x, y, z, rand);
+  bot.species = sp;
+  bot.speed = info.speed;
+  bot.hp = info.hp;
+  return bot;
 }

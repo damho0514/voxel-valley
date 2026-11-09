@@ -190,6 +190,21 @@ def main():
     tone(b, 0, 1.0, 420, vol=0.12, freq_end=180, attack=0.4, release=0.5)
     save('whoosh.wav', b, peak=0.6)
 
+    b = blank(0.25)  # weapon swing: a quick bright swish
+    noise(b, 0, 0.25, vol=0.6, smooth=0.4, sweep=0.85, attack=0.03, release=0.15, seed=101)
+    tone(b, 0, 0.2, 900, vol=0.08, freq_end=500, release=0.1)
+    save('swing.wav', b, peak=0.5)
+
+    b = blank(0.35)  # ouch: a short falling buzz
+    tone(b, 0, 0.3, 320, vol=0.4, freq_end=160, decay=0.12, kind='tri')
+    noise(b, 0, 0.12, vol=0.2, smooth=0.5, decay=0.04, seed=111)
+    save('hurt.wav', b, peak=0.6)
+
+    b = blank(0.7)  # tamed: a happy little three-note arpeggio
+    for k, n in enumerate((72, 76, 79, 84)):
+        tone(b, k * 0.09, 0.35, midi(n), vol=0.25, decay=0.15)
+    save('tame.wav', b, peak=0.55)
+
     save('future.wav', future_music(), peak=0.5)
     save('space.wav', space_music(), peak=0.55)
 

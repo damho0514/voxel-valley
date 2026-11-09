@@ -1,6 +1,6 @@
 import { Block, BLOCKS, Dimension, isReplaceable, paletteFor, PORTAL_TARGET } from './blocks';
 import { arrival, BLACK_HOLE } from './dimensions';
-import { Body, collides, EYE_HEIGHT, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
+import { Body, collides, EYE_HEIGHT, inLava, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
 import { Hit, raycast } from './raycast';
 import { Save } from './storage';
 import { HEIGHT, toChunk, World } from './world';
@@ -44,6 +44,12 @@ export class Game {
   private vel = { x: 0, y: 0, z: 0 };
   private portalCooldown = 0;
   private prevJump = false;
+  /** Health: lava burns it away; it slowly comes back. At 0 you respawn. */
+  hp = 100;
+  readonly maxHp = 100;
+  private hurtCooldown = 0;
+  onHurt: (amount: number) => void = () => {};
+  onRespawn: () => void = () => {};
   /** 0..1: how hard the black hole is pulling right now (for rumble and HUD). */
   blackHolePull = 0;
   get velocity() {
@@ -197,6 +203,7 @@ export class Game {
       }
     }
 
+    this.updateHealth(dt);
     const jumpPressed = input.jump && !this.prevJump;
     this.prevJump = input.jump;
     if (this.dim === 'space') {
@@ -387,6 +394,43 @@ export class Game {
     this.onEdit(x, y, z, b);
   }
 
+  private updateHealth(dt: number) {
+    this.hurtCooldown -= dt;
+    if (inLava(this.world, this.body)) {
+      this.hp -= 30 * dt;
+      if (this.hurtCooldown <= 0) {
+        this.hurtCooldown = 0.45;
+        this.onHurt(30 * 0.45);
+      }
+    } else {
+      this.hp = Math.min(this.maxHp, this.hp + 3 * dt);
+    }
+    if (this.hp <= 0) {
+      // Burned up: back to the start of this world, fully healed.
+      const a = this.dim === 'valley'
+        ? { pos: this.world.findSpawn(0, 0), yaw: 0 }
+        : arrival(this.world, this.dim);
+      Object.assign(this.body, { x: a.pos[0], y: a.pos[1], z: a.pos[2], vy: 0 });
+      this.vel = { x: 0, y: 0, z: 0 };
+      this.yaw = a.yaw;
+      this.hp = this.maxHp;
+      this.onRespawn();
+    }
+  }
+
+  /** Weapon strike: breaks the block instantly (anything breakable, at any distance in reach). */
+  mineAt(hit: Hit) {
+    const b = this.world.get(hit.x, hit.y, hit.z);
+    if (!BLOCKS[b].breakable) return false;
+    this.onSound('break');
+    this.onBreak(hit.x, hit.y, hit.z, b);
+    this.world.set(hit.x, hit.y, hit.z, Block.Air);
+    this.dirty = true;
+    this.onBlockChanged(hit.x, hit.z);
+    this.onEdit(hit.x, hit.y, hit.z, Block.Air);
+    return true;
+  }
+
   /** First solid block along a direction from the eye, far reach (for dragon fire). */
   farHit(dir: { x: number; y: number; z: number }, reach = 120): Hit | null {
     const e = this.eye();
@@ -431,7 +475,11 @@ export class Game {
           const info = BLOCKS[b];
           if (b === Block.Air || b === Block.Water || !info.breakable || info.portal || safe(x, y, z)) continue;
           if (d <= r) set(x, y, z, Block.Air);
-          else if (y <= cy) set(x, y, z, Math.random() < 0.35 ? Block.Ember : Block.Ash); // scorched rim
+          else if (y <= cy) {
+            // The crater floor: pools of lava among embers and ash.
+            const r2 = Math.random();
+            set(x, y, z, r2 < 0.4 ? Block.Lava : r2 < 0.65 ? Block.Ember : Block.Ash);
+          }
         }
     if (changed) this.dirty = true;
     return changed;

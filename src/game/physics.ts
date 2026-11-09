@@ -20,7 +20,15 @@ export function collides(world: World, x: number, y: number, z: number): boolean
 }
 
 export function inWater(world: World, b: Body) {
-  return world.get(Math.floor(b.x), Math.floor(b.y + 0.6), Math.floor(b.z)) === Block.Water;
+  const k = world.get(Math.floor(b.x), Math.floor(b.y + 0.6), Math.floor(b.z));
+  return k === Block.Water || k === Block.Lava;
+}
+
+/** Whether any part of the body is in lava. */
+export function inLava(world: World, b: Body) {
+  for (const dy of [0.1, 0.9, 1.5])
+    if (world.get(Math.floor(b.x), Math.floor(b.y + dy), Math.floor(b.z)) === Block.Lava) return true;
+  return false;
 }
 
 /**

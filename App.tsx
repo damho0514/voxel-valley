@@ -9,9 +9,8 @@ import { Animated, AppState, Linking, Platform, Pressable, ScrollView, Share, St
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { sound } from './src/audio/sound';
 import { Block, BLOCKS, Dimension, DIMENSION_INFO, Season, SEASON_INFO, SEASONS } from './src/game/blocks';
-import { VALLEY_GATES } from './src/game/dimensions';
-import { Bot, spawnBots, spawnRobots } from './src/game/bots';
-import { Game, HudState, Input } from './src/game/game';
+import { Bot, knockBack, makeAnimal, spawnAnimals, spawnBots, spawnRobots, Species, SPECIES_INFO } from './src/game/bots';
+import { Game, HudState, Input, REACH } from './src/game/game';
 import { clearSave, loadSave, Save, savedSeasons, writeSave } from './src/game/storage';
 import { DimCode, isRoomCode, newRoomCode, parseEditKey, PlayerInfo, RoomClient, Welcome } from './src/net/room';
 
@@ -29,13 +28,7 @@ const PROFILE_KEY = 'voxel-valley-go/profile-v1';
 const AVATAR_COLORS = [0xf28b6c, 0x6cb4f2, 0x8bd17c, 0xc89cf0, 0xf2c94c, 0xf27fb2, 0x5fd0c4, 0xb0a08a];
 const SENSITIVITY = [{ label: '느림', k: 0.6 }, { label: '보통', k: 1 }, { label: '빠름', k: 1.5 }];
 type LookMode = 'stick' | 'steer' | 'tilt' | 'drag';
-const LOOK_MODES: { mode: LookMode; label: string; help: string }[] = [
-  { mode: 'stick', label: '듀얼 조이스틱', help: '왼쪽 조이스틱=이동, 오른쪽 조이스틱=둘러보기' },
-  { mode: 'steer', label: '쉬운 회전', help: '조이스틱 좌우로 몸이 돌아요 (화면 드래그도 가능)' },
-  { mode: 'tilt', label: '기울이기', help: '폰을 돌리고 기울이면 시점이 따라와요 (화면 드래그도 가능)' },
-  { mode: 'drag', label: '드래그', help: '오른쪽 화면을 끌어서 둘러봐요 (조이스틱 좌우는 옆걸음)' },
-];
-type Profile = { name: string; color: number; sensitivity?: number; autoJump?: boolean; lookMode?: LookMode };
+type Profile = { name: string; color: number; sensitivity?: number; autoJump?: boolean; lookMode?: LookMode; pets?: Species[] };
 
 const buzz = (style: Haptics.ImpactFeedbackStyle) => { if (Platform.OS !== 'web') Haptics.impactAsync(style).catch(() => {}); };
 
@@ -166,12 +159,18 @@ type Touch = { tap: { x: number; y: number } | null; hold: { x: number; y: numbe
 function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profile; onProfile: (p: Profile) => void; onExit: () => void }) {
   const inputRef = useRef<Input>({ moveX: 0, moveY: 0, lookDX: 0, lookDY: 0, jump: false, down: false, dig: false, placeTap: false });
   const [dim, setDim] = useState<Dimension>('valley');
-  const [hint, setHint] = useState<string | null>(null);
   const flash = useRef(new Animated.Value(0)).current;
+  const hurtFlash = useRef(new Animated.Value(0)).current;
+  const [weapon, setWeapon] = useState(false);
+  const weaponRef = useRef(false);
+  const [hp, setHp] = useState(100);
+  const animalsRef = useRef<Bot[]>([]);
+  const petsRef = useRef<Bot[]>([]);
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
   const viewRef = useRef<VoxelRenderer | null>(null);
   const strikeRef = useRef<(hit: { x: number; y: number; z: number }) => void>(() => {});
   const [dragon, setDragon] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const lookMode: LookMode = profile.lookMode ?? 'stick';
   const lookStick = useRef({ x: 0, y: 0 });
 
@@ -184,7 +183,6 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   const [loading, setLoading] = useState<string | null>('계곡을 만드는 중...');
   const [status, setStatus] = useState<{ state: 'connecting' | 'online' | 'offline'; error?: string } | null>(null);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
-  const [muted, setMuted] = useState(sound.muted);
   const { width, height } = useWindowDimensions();
   const screen = useRef({ width, height });
   screen.current = { width, height };
@@ -198,8 +196,8 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     const g = gameRef.current;
     if (!g) return;
     g.steer = lookMode === 'steer';
-    g.autoJump = profile.autoJump ?? true;
-  }, [lookMode, profile.autoJump, hud !== null]);
+    g.autoJump = true;
+  }, [lookMode, hud !== null]);
 
   // Tilt aiming: integrate the gyroscope into turn input. In landscape the screen's "up" is the
   // device's ±x axis (which way depends on how the phone is held), its "right" is ∓y.
@@ -327,7 +325,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       if (s === 'place') buzz(Haptics.ImpactFeedbackStyle.Light);
       else if (s === 'break') buzz(Haptics.ImpactFeedbackStyle.Medium);
     };
-    game.autoJump = profile.autoJump ?? true;
+    game.autoJump = true;
     game.steer = (profile.lookMode ?? 'stick') === 'steer';
     game.onBreak = (x, y, z, b) => {
       const info = BLOCKS[b];
@@ -336,6 +334,18 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     viewRef.current = view;
     if (__DEV__ && Platform.OS === 'web') (globalThis as { __vvView?: VoxelRenderer }).__vvView = view;
     game.onAirJump = () => buzz(Haptics.ImpactFeedbackStyle.Light);
+    game.onHurt = () => {
+      sound.play('hurt');
+      buzz(Haptics.ImpactFeedbackStyle.Heavy);
+      hurtFlash.setValue(0.55);
+      Animated.timing(hurtFlash, { toValue: 0, duration: 450, useNativeDriver: false }).start();
+    };
+    game.onRespawn = () => {
+      sound.play('portal');
+      flash.setValue(1);
+      Animated.timing(flash, { toValue: 0, duration: 1400, useNativeDriver: false }).start();
+      petsPlaced = false;
+    };
     game.onWarp = () => {
       view.shake(1.2, 1.5);
       flash.setValue(1);
@@ -352,6 +362,9 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       view.setDimension(d, game.world.season);
       sound.setTrack(d);
       botsRef.current = [];
+      deadBots = [];
+      animalsRef.current = [];
+      petsPlaced = false;
       ready = false;
       setDim(d);
       setPalette(game.palette);
@@ -363,7 +376,62 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     }
 
     const input = inputRef.current, touch = touchRef.current;
-    let last = Date.now(), lastHud = 0, ready = false, lastBreath = 0, lastRumble = 0, lastQuake = 0;
+    let last = Date.now(), lastHud = 0, ready = false, lastBreath = 0, lastRumble = 0, lastQuake = 0, lastSwing = 0, lastAnimalCheck = 0;
+    let petsPlaced = false;
+    let deadBots: { bot: Bot; at: number }[] = [];
+    petsRef.current = (profile.pets ?? []).map((sp, i) => {
+      const pet = makeAnimal(`pet-${i}`, sp, game.body.x, game.body.y, game.body.z);
+      pet.pet = true;
+      return pet;
+    });
+
+    /** Nearest bot/animal/pet whose body the ray passes through (within reach). */
+    const pickEntity = (o: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, max: number) => {
+      let best: { bot: Bot; t: number } | null = null;
+      for (const b of [...botsRef.current, ...animalsRef.current, ...petsRef.current]) {
+        const h = b.species ? 0.7 : 1.9, r = b.species ? 0.55 : 0.6;
+        const cx = b.body.x - o.x, cy = b.body.y + h / 2 - o.y, cz = b.body.z - o.z;
+        const t = cx * dir.x + cy * dir.y + cz * dir.z;
+        if (t < 0 || t > max) continue;
+        const d2 = cx * cx + cy * cy + cz * cz - t * t;
+        if (d2 < r * r * 1.4 && (!best || t < best.t)) best = { bot: b, t };
+      }
+      return best;
+    };
+
+    /** Hitting something: wild animals become pets; with the weapon, bots take damage and break apart. */
+    const hitEntity = (b: Bot): boolean => {
+      if (b.species && !b.pet) {
+        b.pet = true;
+        animalsRef.current = animalsRef.current.filter((a) => a !== b);
+        petsRef.current = [...petsRef.current, b];
+        const pets = [...(profileRef.current.pets ?? []), b.species].slice(-6);
+        onProfile({ ...profileRef.current, pets });
+        sound.play('tame');
+        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        view.effects.burst(Math.floor(b.body.x), Math.floor(b.body.y + 0.5), Math.floor(b.body.z), [[1, 0.42, 0.6], [1, 0.75, 0.85], [1, 1, 1]], 18);
+        knockBack(b, game.body);
+        b.hitFlash = 0;
+        return true;
+      }
+      if (b.species) return false; // never hurt a pet
+      if (!weaponRef.current) return false;
+      b.hp -= 1;
+      knockBack(b, game.body);
+      buzz(Haptics.ImpactFeedbackStyle.Medium);
+      sound.play('hurt');
+      if (b.hp <= 0) {
+        // Destroyed: burst into pieces of its colours; it comes back a while later.
+        const c = new THREE.Color(b.color);
+        view.effects.burst(Math.floor(b.body.x), Math.floor(b.body.y + 1), Math.floor(b.body.z), [[c.r, c.g, c.b], [0.8, 0.82, 0.86], [0.3, 0.32, 0.36]], 28);
+        sound.play('boom');
+        view.shake(0.3, 0.4);
+        buzz(Haptics.ImpactFeedbackStyle.Heavy);
+        botsRef.current = botsRef.current.filter((x) => x !== b);
+        deadBots.push({ bot: b, at: Date.now() });
+      }
+      return true;
+    };
     /** The dragon breathes fire at a block; when the fire lands, the ground there is blasted. */
     const strike = (hit: { x: number; y: number; z: number }) => {
       const dragon = view.dragon;
@@ -390,12 +458,33 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       const finger = touch.hold ?? touch.tap;
       const { width: w, height: h } = screen.current;
       game.aimRay = finger ? view.rayFromScreen((finger.x / w) * 2 - 1, -((finger.y / h) * 2 - 1)) : null;
-      // With the dragon out, a tap tells it where to breathe fire instead of placing a block.
-      const dragonTap = !!(touch.tap && view.dragon);
-      if (dragonTap && now - lastBreath > 700) {
-        lastBreath = now;
-        const hit = game.farHit(game.aimRay ?? game.lookDir());
-        if (hit) strike(hit);
+      // Taps: dragon fire (when the dragon is out) > creatures > weapon strikes > placing blocks.
+      let consumed = false;
+      const armed = weaponRef.current;
+      if (touch.tap || (armed && touch.hold && now - lastSwing > 260)) {
+        const dir = game.aimRay ?? game.lookDir();
+        if (view.dragon && touch.tap) {
+          consumed = true;
+          if (now - lastBreath > 700) {
+            lastBreath = now;
+            const hit = game.farHit(dir);
+            if (hit) strike(hit);
+          }
+        } else {
+          const e = game.eye();
+          const reach = armed ? 12 : REACH;
+          const ent = pickEntity(e, dir, reach);
+          const blk = game.farHit(dir, reach);
+          const blkDist = blk ? Math.hypot(blk.x + 0.5 - e.x, blk.y + 0.5 - e.y, blk.z + 0.5 - e.z) : Infinity;
+          if (ent && ent.t < blkDist) consumed = hitEntity(ent.bot);
+          if (!consumed && armed && blk) consumed = game.mineAt(blk);
+          if (armed) {
+            consumed = true;
+            lastSwing = now;
+            view.swing();
+            sound.play('swing');
+          }
+        }
       }
       // Right stick: turn rate grows with how far it's pushed (fine aim near the centre).
       const ls = lookStick.current, lk = sensRef.current * dt;
@@ -403,7 +492,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         input.turnYaw = (input.turnYaw ?? 0) - Math.sign(ls.x) * Math.pow(Math.abs(ls.x), 1.7) * 2.6 * lk;
         input.turnPitch = (input.turnPitch ?? 0) + Math.sign(ls.y) * Math.pow(Math.abs(ls.y), 1.7) * 1.8 * lk;
       }
-      game.update(dt, { ...input, dig: input.dig || !!touch.hold, placeTap: input.placeTap || (!!touch.tap && !dragonTap) }, ready);
+      game.update(dt, { ...input, dig: !armed && (input.dig || !!touch.hold), placeTap: !armed && (input.placeTap || (!!touch.tap && !consumed)) }, ready);
       view.effects.setDig(game.dig, game.target?.x, game.target?.y, game.target?.z);
       // Speed streaks + FOV kick when flying fast in space or air-jumping in the city.
       view.setMotion(game.dim === 'space' ? game.velocity : game.dim === 'future' ? { x: 0, y: Math.max(0, game.body.vy) * 1.2, z: 0 } : { x: 0, y: 0, z: 0 }, dt);
@@ -430,14 +519,39 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         if (game.dim === 'valley' && mode.kind === 'solo') botsRef.current = spawnBots(game.world, game.body);
         else if (game.dim === 'future') botsRef.current = spawnRobots(game.world, game.body);
       }
-      for (const bot of botsRef.current) bot.update(game.world, Math.min(dt, 0.05), game.body);
+      // Destroyed bots come back after 30 s, somewhere near you.
+      deadBots = deadBots.filter(({ bot, at }) => {
+        if (now - at < 30000) return true;
+        const [x, y, z] = game.world.findSpawn(Math.floor(game.body.x + 10), Math.floor(game.body.z + 10));
+        Object.assign(bot.body, { x, y, z, vy: 0 });
+        bot.hp = 3;
+        botsRef.current = [...botsRef.current, bot];
+        return false;
+      });
+      // Wild animals in the valley; topped up now and then.
+      if (ready && game.dim === 'valley' && now - lastAnimalCheck > 20000) {
+        lastAnimalCheck = now;
+        if (animalsRef.current.length < 4) animalsRef.current = [...animalsRef.current, ...spawnAnimals(game.world, game.body, game.world.season, 6 - animalsRef.current.length)];
+      }
+      // Pets appear beside you whenever you arrive somewhere.
+      if (ready && !petsPlaced) {
+        petsPlaced = true;
+        petsRef.current.forEach((p, i) => {
+          const [x, y, z] = game.world.findSpawn(Math.floor(game.body.x) + 1 + (i % 3), Math.floor(game.body.z) + 2 + Math.floor(i / 3));
+          Object.assign(p.body, { x, y, z, vy: 0 });
+        });
+      }
+      const step = Math.min(dt, 0.05);
+      for (const bot of [...botsRef.current, ...animalsRef.current, ...petsRef.current]) bot.update(game.world, step, game.body);
 
       const room = roomRef.current;
       const d = dimCode(game.dim);
       if (room && ready) room.sendPos(game.body.x, game.body.y, game.body.z, game.yaw, d, now);
       const others = [
         ...(room ? [...room.players.values()].filter((p) => (p.d ?? 0) === d) : []),
-        ...botsRef.current.map((b) => ({ id: b.id, color: b.color, x: b.body.x, y: b.body.y, z: b.body.z, yaw: b.yaw, robot: b.robot })),
+        ...[...botsRef.current, ...animalsRef.current, ...petsRef.current].map((b) => ({
+          id: b.id, color: b.color, x: b.body.x, y: b.body.y, z: b.body.z, yaw: b.yaw, robot: b.robot, species: b.species, pet: b.pet, flash: b.hitFlash,
+        })),
       ];
       view.setAvatars(others, dt);
 
@@ -452,24 +566,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       if (now - lastHud > 120) {
         lastHud = now;
         setHud(game.hud());
-        let near: string | null = null;
-        if (game.dim === 'valley') {
-          for (const g of VALLEY_GATES) {
-            if (Math.hypot(game.body.x - g.cx, game.body.z - g.z) < 7) {
-              near = `${DIMENSION_INFO[g.to].emoji} ${DIMENSION_INFO[g.to].name}로 가는 문 — 빛 속으로 걸어 들어가세요`;
-            }
-          }
-        } else if (game.dim === 'space') {
-          near = game.blackHolePull > 0.05
-            ? `⚠️ 블랙홀 중력권 ${Math.round(game.blackHolePull * 100)}% — 빠져나오려면 반대로 추진!`
-            : '🌌 무중력: 조이스틱=바라보는 방향으로 추진 · ▲ 톡톡=무한 점프 · ▼=아래';
-        } else if (game.dim === 'future' && Math.hypot(game.body.x - 1, game.body.z + 8) >= 7) {
-          near = '🚀 무한 점프: 공중에서도 점프를 계속 누르면 더 높이!';
-        } else if (Math.hypot(game.body.x - 1, game.body.z + 8) < 7) {
-          near = '🏞️ 계곡으로 돌아가는 문';
-        }
-        if (view.dragon) near = '🐉 화면을 톡 치면 용이 그곳에 불을 뿜어요 (내 주변은 안전)';
-        setHint(near);
+        setHp(Math.round(game.hp));
         if (ready) setLoading(null);
       }
       requestAnimationFrame(frame);
@@ -507,6 +604,12 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     sound.play('tap');
     if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
     if (gameRef.current) gameRef.current.selected = i;
+    equip(false);
+  };
+  const equip = (on: boolean) => {
+    weaponRef.current = on;
+    setWeapon(on);
+    viewRef.current?.setWeapon(on);
   };
   const code = mode.kind === 'solo' ? null : mode.code;
   const shareCode = () => {
@@ -517,6 +620,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
     ...players.map((p) => ({ ...p, name: (p.d ?? 0) !== dimCode(dim) ? `${p.name} (${DIMENSION_INFO[DIMS[p.d ?? 0]].name})` : p.name })),
     ...botsRef.current.filter((b) => !b.robot).map((b) => ({ id: b.id, name: `${b.name} (봇)`, color: b.color })),
     ...(robots ? [{ id: 'robots', name: `로봇 시민 ${robots}명`, color: 0xc9d0da }] : []),
+    ...petsRef.current.map((p) => ({ id: p.id, name: `❤️ ${SPECIES_INFO[p.species!].name}`, color: p.color })),
   ];
   const season = gameRef.current?.world.season;
 
@@ -566,17 +670,13 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         <Pressable testID="dragon" style={[styles.pill, dragon && { backgroundColor: 'rgba(196,48,61,0.8)' }]} onPress={summonDragon}>
           <Text style={styles.pillText}>{dragon ? '🐉 돌려보내기' : '🐉 용 소환'}</Text>
         </Pressable>
-        <Pressable testID="settings" style={[styles.pill, settingsOpen && { backgroundColor: 'rgba(255,255,255,0.35)' }]}
-          onPress={() => { sound.play('tap'); setSettingsOpen(!settingsOpen); }}>
-          <Text style={styles.pillText}>⚙️ 설정</Text>
-        </Pressable>
         <Pressable testID="exit" style={styles.pill} onPress={() => { sound.play('tap'); save(); onExit(); }}>
           <Text style={styles.pillText}>나가기</Text>
         </Pressable>
       </View>
 
       <Joystick onMove={(x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
-      {lookMode === 'stick' && !settingsOpen && <Joystick side="right" onMove={(x, y) => { lookStick.current = { x, y }; }} />}
+      {lookMode === 'stick' && <Joystick side="right" onMove={(x, y) => { lookStick.current = { x, y }; }} />}
       {dim === 'space' ? (
         <>
           <HoldButton label="▲" color="#6b5fd6" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
@@ -587,57 +687,33 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       )}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hotbar} contentContainerStyle={styles.hotbarInner}>
+        <Pressable testID="weapon" onPress={() => { sound.play('tap'); equip(!weapon); }}
+          style={[styles.slot, weapon && styles.slotWeapon]}>
+          <Text style={styles.weaponIcon}>⚔️</Text>
+        </Pressable>
         {palette.map((b, i) => (
           <Pressable key={b} testID={`slot-${i}`} onPress={() => select(i)}
-            style={[styles.slot, hud?.selected === i && styles.slotSelected]}>
+            style={[styles.slot, !weapon && hud?.selected === i && styles.slotSelected]}>
             <View style={[styles.swatch, { backgroundColor: hex(BLOCKS[b].top) }, BLOCKS[b].glass && styles.swatchGlass]} />
           </Pressable>
         ))}
       </ScrollView>
       {hud && palette.length > 0 && (
-        <Text pointerEvents="none" style={styles.selectedName}>{`${BLOCKS[palette[hud.selected]].name} · 무제한`}</Text>
+        <Text pointerEvents="none" style={styles.selectedName}>{weapon ? '에너지 검' : BLOCKS[palette[hud.selected]].name}</Text>
       )}
-
-      {hint && !loading && <Text pointerEvents="none" style={styles.hint}>{hint}</Text>}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: dim === 'space' ? '#1a1240' : '#e8fbff', opacity: flash }]} />
-
-      {settingsOpen && (
-        <View style={styles.settings}>
-          <Text style={styles.settingsTitle}>시점 조작</Text>
-          <View style={styles.settingsRow}>
-            {LOOK_MODES.map((m) => (
-              <Pressable key={m.mode} testID={`look-${m.mode}`} style={[styles.choice, lookMode === m.mode && styles.choiceOn]}
-                onPress={() => { sound.play('tap'); onProfile({ ...profile, lookMode: m.mode }); }}>
-                <Text style={styles.choiceText}>{m.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={styles.settingsHelp}>{LOOK_MODES.find((m) => m.mode === lookMode)?.help}</Text>
-          <Text style={styles.settingsTitle}>감도</Text>
-          <View style={styles.settingsRow}>
-            {SENSITIVITY.map((x, i) => (
-              <Pressable key={x.label} style={[styles.choice, (profile.sensitivity ?? 1) === i && styles.choiceOn]}
-                onPress={() => onProfile({ ...profile, sensitivity: i })}>
-                <Text style={styles.choiceText}>{x.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <View style={styles.settingsRow}>
-            <Pressable testID="autojump" style={[styles.choice, (profile.autoJump ?? true) && styles.choiceOn]}
-              onPress={() => onProfile({ ...profile, autoJump: !(profile.autoJump ?? true) })}>
-              <Text style={styles.choiceText}>{`자동점프 ${(profile.autoJump ?? true) ? '켬' : '끔'}`}</Text>
-            </Pressable>
-            <Pressable testID="mute-play" style={[styles.choice, !muted && styles.choiceOn]} onPress={() => { sound.setMuted(!muted); setMuted(!muted); }}>
-              <Text style={styles.choiceText}>{muted ? '🔇 소리 끔' : '🔊 소리 켬'}</Text>
-            </Pressable>
-          </View>
+      <View pointerEvents="none" style={styles.hpWrap}>
+        <Text style={styles.hpIcon}>❤️</Text>
+        <View style={styles.hpBar}>
+          <View style={[styles.hpFill, { width: `${hp}%`, backgroundColor: hp > 50 ? '#5fd07f' : hp > 25 ? '#f2c94c' : '#ff5a5a' }]} />
         </View>
-      )}
+      </View>
+
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#ff2a2a', opacity: hurtFlash }]} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: dim === 'space' ? '#1a1240' : '#e8fbff', opacity: flash }]} />
 
       {loading && (
         <View style={styles.loading}>
           <Text style={styles.loadingText}>{loading}</Text>
-          <Text style={styles.loadingHint}>화면을 끌면 둘러보기 · 블록을 톡 치면 놓기 · 꾹 누르면 캐기</Text>
           {status?.state === 'offline' && (
             <Pressable style={[styles.cta, { backgroundColor: '#56657a', marginTop: 16 }]} onPress={onExit}>
               <Text style={styles.ctaText}>돌아가기</Text>
@@ -687,13 +763,12 @@ const styles = StyleSheet.create({
   playerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   playerDot: { width: 10, height: 10, borderRadius: 5 },
   playerName: { color: 'white', fontSize: 13, fontWeight: '600' },
-  settings: { position: 'absolute', top: 52, right: 14, width: 330, padding: 12, borderRadius: 14, backgroundColor: 'rgba(25,32,45,0.88)', gap: 8 },
-  settingsTitle: { color: 'white', fontWeight: '800', fontSize: 14 },
-  settingsHelp: { color: 'rgba(255,255,255,0.75)', fontSize: 12 },
-  settingsRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  choice: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.12)' },
-  choiceOn: { backgroundColor: '#3f9d63' },
-  choiceText: { color: 'white', fontWeight: '700', fontSize: 13 },
+  slotWeapon: { backgroundColor: 'rgba(95,242,255,0.55)' },
+  weaponIcon: { fontSize: 22 },
+  hpWrap: { position: 'absolute', top: 16, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6 },
+  hpIcon: { fontSize: 14 },
+  hpBar: { width: 150, height: 10, borderRadius: 5, backgroundColor: 'rgba(20,25,35,0.5)', overflow: 'hidden' },
+  hpFill: { height: '100%', borderRadius: 5 },
   bigButton: { right: 22, bottom: 30, width: 88, height: 88, borderRadius: 44 },
   topRight: { position: 'absolute', top: 10, right: 14, flexDirection: 'row', gap: 8 },
   pill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(30,40,50,0.45)' },
@@ -706,9 +781,6 @@ const styles = StyleSheet.create({
   swatch: { width: 28, height: 28, borderRadius: 8 },
   selectedName: { position: 'absolute', bottom: 58, alignSelf: 'center', color: 'white', fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 3 },
-  hint: { position: 'absolute', top: 54, alignSelf: 'center', color: 'white', fontSize: 14, fontWeight: '700', paddingHorizontal: 12,
-    paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(30,40,60,0.45)', overflow: 'hidden' },
   loading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#2f4b5c', alignItems: 'center', justifyContent: 'center', gap: 10 },
   loadingText: { color: 'white', fontSize: 18, textAlign: 'center', paddingHorizontal: 30 },
-  loadingHint: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
 });

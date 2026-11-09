@@ -20,7 +20,25 @@ const SKY_PALETTE: Record<Season | 'future', { zenith: number; horizon: number }
 };
 
 /** Where another player is, as the renderer needs it. */
-export type Avatar = { id: string; color: number; x: number; y: number; z: number; yaw: number; robot?: boolean };
+export type Avatar = {
+  id: string; color: number; x: number; y: number; z: number; yaw: number;
+  robot?: boolean; species?: string; pet?: boolean; flash?: number;
+};
+
+/** A small pixel heart (for pets). */
+function heartTexture(): THREE.DataTexture {
+  const rows = ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'];
+  const n = 8, data = new Uint8Array(n * n * 4);
+  rows.forEach((row, ry) => [...row].forEach((ch, x) => {
+    if (ch !== 'X') return;
+    const y = n - 2 - ry, o = (y * n + x) * 4;
+    data[o] = 255; data[o + 1] = 90; data[o + 2] = 130; data[o + 3] = 255;
+  }));
+  const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  t.magFilter = THREE.NearestFilter;
+  t.needsUpdate = true;
+  return t;
+}
 
 const SKY_FUTURE = 0x9db3da;
 const SKY_SPACE = new THREE.Color(0x03040b);
@@ -473,6 +491,51 @@ export class VoxelRenderer {
   private shakeAmp = 0;
   dragon: Dragon | null = null;
 
+  // First-person weapon: a glowing energy blade held at the lower right, with a swing animation.
+  private weaponModel: THREE.Group | null = null;
+  private swingT = 1;
+
+  setWeapon(on: boolean) {
+    if (!this.weaponModel) {
+      const w = new THREE.Group();
+      const mat = (c: number) => new THREE.MeshBasicMaterial({ color: c, fog: false });
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.62, 0.02), mat(0x9ff6ff));
+      blade.position.y = 0.42;
+      const core = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.6, 0.025), mat(0xffffff));
+      core.position.y = 0.42;
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.66, 0.04),
+        new THREE.MeshBasicMaterial({ color: 0x5ff2ff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+      glow.position.y = 0.42;
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.06), mat(0xf2b544));
+      guard.position.y = 0.1;
+      const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.045), mat(0x3a3f4a));
+      w.add(blade, core, glow, guard, grip);
+      w.position.set(0.32, -0.32, -0.55);
+      w.rotation.set(-0.35, -0.25, -0.35);
+      w.traverse((o) => { o.renderOrder = 10; if (o instanceof THREE.Mesh) (o.material as THREE.Material).depthTest = false; });
+      this.camera.add(w);
+      this.scene.add(this.camera);
+      this.weaponModel = w;
+    }
+    this.weaponModel.visible = on;
+  }
+
+  /** Swing the weapon once. */
+  swing() {
+    this.swingT = 0;
+  }
+
+  private updateWeapon(dt: number) {
+    const w = this.weaponModel;
+    if (!w || !w.visible) return;
+    this.swingT = Math.min(1, this.swingT + dt * 4.5);
+    const s = Math.sin(this.swingT * Math.PI); // 0 → 1 → 0
+    w.rotation.set(-0.35 - s * 1.3, -0.25 + s * 0.5, -0.35 - s * 0.4);
+    w.position.set(0.32 - s * 0.12, -0.32 + s * 0.05, -0.55 - s * 0.1);
+    // A gentle idle bob.
+    w.position.y += Math.sin(Date.now() / 450) * 0.006;
+  }
+
   /** Shakes the camera for `seconds` (an earthquake). */
   shake(amp: number, seconds: number) {
     this.shakeAmp = Math.max(this.shakeAmp, amp);
@@ -512,7 +575,79 @@ export class VoxelRenderer {
     });
   }
 
-  private makeAvatar(color: number, robot = false) {
+  private heartTex: THREE.DataTexture | null = null;
+
+  /** Original blocky animals. Four legs swing like limbs. */
+  private makeAnimal(species: string, part: (geo: THREE.BufferGeometry, c: THREE.Color, y: number, z?: number, glow?: boolean) => THREE.Mesh) {
+    const g = new THREE.Group();
+    const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
+    const C = (h: number) => new THREE.Color(h);
+    const at = (m: THREE.Mesh, x: number, y: number, z: number) => { m.position.set(x, y, z); g.add(m); return m; };
+    const leg = (w: number, h: number, c: THREE.Color, x: number, y: number, z: number) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, y, z);
+      const m = part(box(w, h, w), c, -h / 2);
+      pivot.add(m);
+      g.add(pivot);
+      return pivot;
+    };
+    let legs: THREE.Group[] = [];
+    if (species === 'rabbit') {
+      const fur = C(0xf3ece4), inner = C(0xf6b8c8);
+      at(part(box(0.38, 0.34, 0.5), fur, 0), 0, 0.32, 0.05);
+      at(part(box(0.3, 0.28, 0.28), fur, 0), 0, 0.52, -0.25);
+      for (const sx of [-0.07, 0.07]) {
+        at(part(box(0.07, 0.3, 0.05), fur, 0), sx, 0.8, -0.24);
+        at(part(box(0.04, 0.22, 0.02), inner, 0), sx, 0.8, -0.27);
+        at(part(box(0.05, 0.05, 0.02), C(0x2a2f3a), 0), sx * 1.4, 0.55, -0.4);
+      }
+      at(part(box(0.06, 0.05, 0.03), inner, 0), 0, 0.48, -0.4);
+      at(part(box(0.14, 0.14, 0.1), C(0xffffff), 0), 0, 0.38, 0.33);
+      legs = [leg(0.1, 0.16, fur, -0.12, 0.16, -0.12), leg(0.1, 0.16, fur, 0.12, 0.16, -0.12), leg(0.12, 0.16, fur, -0.12, 0.16, 0.18), leg(0.12, 0.16, fur, 0.12, 0.16, 0.18)];
+    } else if (species === 'sheep') {
+      const wool = C(0xfafaf5), face = C(0x4a4448);
+      at(part(box(0.7, 0.55, 0.9), wool, 0), 0, 0.72, 0);
+      at(part(box(0.34, 0.34, 0.3), face, 0), 0, 0.85, -0.55);
+      at(part(box(0.42, 0.18, 0.3), wool, 0), 0, 1.04, -0.5);
+      for (const sx of [-0.08, 0.08]) at(part(box(0.06, 0.06, 0.02), C(0xffffff), 0), sx, 0.9, -0.71);
+      legs = [leg(0.14, 0.45, face, -0.2, 0.45, -0.3), leg(0.14, 0.45, face, 0.2, 0.45, -0.3), leg(0.14, 0.45, face, -0.2, 0.45, 0.3), leg(0.14, 0.45, face, 0.2, 0.45, 0.3)];
+    } else if (species === 'fox') {
+      const fur = C(0xe8803a), white = C(0xfaf3ea), dark = C(0x3a2a24);
+      at(part(box(0.36, 0.34, 0.7), fur, 0), 0, 0.5, 0);
+      at(part(box(0.3, 0.2, 0.3), white, 0), 0, 0.42, -0.22);
+      at(part(box(0.34, 0.3, 0.3), fur, 0), 0, 0.68, -0.45);
+      at(part(box(0.16, 0.12, 0.16), white, 0), 0, 0.6, -0.65);
+      at(part(box(0.06, 0.05, 0.03), dark, 0), 0, 0.64, -0.74);
+      for (const sx of [-0.1, 0.1]) {
+        at(part(box(0.1, 0.14, 0.05), fur, 0), sx, 0.9, -0.42);
+        at(part(box(0.05, 0.05, 0.02), dark, 0), sx, 0.72, -0.61);
+      }
+      at(part(box(0.18, 0.18, 0.45), fur, 0), 0, 0.6, 0.55).rotation.x = 0.5;
+      at(part(box(0.14, 0.14, 0.14), white, 0), 0, 0.78, 0.78);
+      legs = [leg(0.1, 0.33, dark, -0.12, 0.33, -0.25), leg(0.1, 0.33, dark, 0.12, 0.33, -0.25), leg(0.1, 0.33, dark, -0.12, 0.33, 0.25), leg(0.1, 0.33, dark, 0.12, 0.33, 0.25)];
+    } else if (species === 'penguin') {
+      const black = C(0x2c3340), white = C(0xf7f8fa), orange = C(0xffa53a);
+      at(part(box(0.46, 0.7, 0.4), black, 0), 0, 0.5, 0);
+      at(part(box(0.34, 0.56, 0.05), white, 0), 0, 0.46, -0.2);
+      at(part(box(0.36, 0.3, 0.34), black, 0), 0, 0.98, -0.02);
+      at(part(box(0.12, 0.06, 0.12), orange, 0), 0, 0.94, -0.24);
+      for (const sx of [-0.08, 0.08]) at(part(box(0.06, 0.06, 0.02), white, 0), sx, 1.04, -0.2);
+      legs = [leg(0.12, 0.14, orange, -0.1, 0.14, -0.05), leg(0.12, 0.14, orange, 0.1, 0.14, -0.05),
+        leg(0.06, 0.5, black, -0.27, 0.8, 0), leg(0.06, 0.5, black, 0.27, 0.8, 0)];
+    } else {
+      const yellow = C(0xffd84a), orange = C(0xff9a2a);
+      at(part(box(0.32, 0.3, 0.34), yellow, 0), 0, 0.3, 0);
+      at(part(box(0.24, 0.22, 0.22), yellow, 0), 0, 0.52, -0.12);
+      at(part(box(0.08, 0.05, 0.08), orange, 0), 0, 0.5, -0.27);
+      for (const sx of [-0.06, 0.06]) at(part(box(0.04, 0.04, 0.02), C(0x2a2f3a), 0), sx, 0.56, -0.24);
+      legs = [leg(0.05, 0.15, orange, -0.07, 0.15, 0), leg(0.05, 0.15, orange, 0.07, 0.15, 0),
+        leg(0.04, 0.14, yellow, -0.18, 0.36, 0), leg(0.04, 0.14, yellow, 0.18, 0.36, 0)];
+    }
+    g.userData.limbs = legs;
+    return g;
+  }
+
+  private makeAvatar(color: number, robot = false, species?: string) {
     const part = (geo: THREE.BufferGeometry, c: THREE.Color, y: number, z = 0, glow = false) => {
       const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: c }));
       m.userData.base = c;
@@ -520,6 +655,11 @@ export class VoxelRenderer {
       m.position.set(0, y, z);
       return m;
     };
+    if (species) {
+      const a = this.makeAnimal(species, part);
+      this.tintAvatar(a);
+      return a;
+    }
     const base = new THREE.Color(color);
     const g = new THREE.Group();
     const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
@@ -579,12 +719,30 @@ export class VoxelRenderer {
       seen.add(p.id);
       let a = this.avatars.get(p.id);
       if (!a) {
-        a = this.makeAvatar(p.color, p.robot);
+        a = this.makeAvatar(p.color, p.robot, p.species);
         a.position.set(p.x, p.y, p.z);
         a.rotation.y = p.yaw;
         this.avatars.set(p.id, a);
         this.scene.add(a);
       }
+      // Pets wear a little heart; a hit flashes the whole body red.
+      if (p.pet && !a.userData.heart) {
+        this.heartTex ??= heartTexture();
+        const heart = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.heartTex, depthWrite: false, transparent: true }));
+        heart.scale.set(0.3, 0.3, 1);
+        heart.position.y = p.species === 'sheep' ? 1.4 : p.species ? 1.2 : 2.4;
+        heart.userData.glow = true;
+        a.add(heart);
+        a.userData.heart = heart;
+      }
+      const flashing = (p.flash ?? 0) > 0;
+      if (flashing !== !!a.userData.flashing) {
+        a.userData.flashing = flashing;
+        a.traverse((o) => {
+          if (o instanceof THREE.Mesh) (o.material as THREE.MeshBasicMaterial).color.copy(flashing ? new THREE.Color(1, 0.25, 0.25) : (o.userData.base as THREE.Color).clone().multiplyScalar(o.userData.glow ? 1 : this.daylight));
+        });
+      }
+      if (a.userData.heart) (a.userData.heart as THREE.Sprite).position.y += Math.sin(Date.now() / 300) * 0.002;
       const before = a.position.clone();
       a.position.lerp(new THREE.Vector3(p.x, p.y, p.z), k);
       // Walk cycle: swing speed follows how fast they're moving across the ground.
@@ -697,6 +855,7 @@ export class VoxelRenderer {
     this.effects.update(dt, (this.daylight - 0.3) / 0.7);
     this.updateWeather(dt);
     this.updateScenery(dt);
+    this.updateWeapon(dt);
     if (this.dragon) {
       this.dragon.update(dt);
       if (this.dragon.gone) this.dragon = null;

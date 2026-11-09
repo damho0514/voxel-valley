@@ -39,9 +39,10 @@ export enum Block {
   GlassRose = 33,
   GlassAmber = 34,
   GlassMint = 35,
+  Lava = 36,
 }
 
-export const BLOCK_COUNT = 36;
+export const BLOCK_COUNT = 37;
 
 /** The valley (seasonal), the future city, and outer space. */
 export type Dimension = 'valley' | 'future' | 'space';
@@ -133,6 +134,7 @@ export const BLOCKS: Record<Block, BlockInfo> = {
   [Block.GlassSky]: { name: '하늘색 유리', ...same(0x7cc8f2), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
   [Block.GlassRose]: { name: '분홍 유리', ...same(0xf59ac0), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
   [Block.GlassAmber]: { name: '호박색 유리', ...same(0xf5c060), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
+  [Block.Lava]: { name: '용암', top: rgb(0xff8a2a), side: rgb(0xf06a1e), bottom: rgb(0xd04a14), solid: false, opaque: true, breakable: false, hardness: Infinity, glow: true },
   [Block.GlassMint]: { name: '민트 유리', ...same(0x7fe0b0), solid: true, opaque: false, breakable: true, hardness: 0.3, glass: true },
 };
 
@@ -153,4 +155,6 @@ const SPACE_PALETTE: Block[] = [Block.Station, Block.Metal, Block.Neon, Block.As
 export const paletteFor = (season: Season, dim: Dimension = 'valley'): Block[] =>
   [...(dim === 'future' ? FUTURE_PALETTE : dim === 'space' ? SPACE_PALETTE : [...BASE_PALETTE, ...SEASON_BLOCKS[season]]), ...GLASS_PALETTE];
 
-export const isReplaceable = (b: Block) => b === Block.Air || b === Block.Water;
+export const isReplaceable = (b: Block) => b === Block.Air || b === Block.Water || b === Block.Lava;
+/** Liquids you sink and swim in. */
+export const isLiquid = (b: Block) => b === Block.Water || b === Block.Lava;

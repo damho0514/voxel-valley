@@ -148,6 +148,12 @@ const P: Record<string, Painter> = {
   },
   ash: grain(0x4a4448, 0.35, 40),
   bedrock_dark: grain(0x5d6270, 0.4, 41),
+  lava: (x, y) => {
+    // Molten swirls: bright yellow veins through orange-red crust.
+    const n = vnoise(x, y, 8, 43) * 0.6 + vnoise(x, y, 4, 44) * 0.4;
+    const vein = Math.abs(n - 0.5) < 0.07 ? 1 : 0;
+    return mix(mix(hex(0xc8381a), hex(0xff8a2a), n), hex(0xfff0a0), vein * 0.85);
+  },
 };
 
 function leafy(base: number, x: number, y: number, s: number): RGB {
@@ -193,7 +199,7 @@ const TILES: [string, Painter][] = [
   ['window_lit', P.window_lit], ['gateframe', P.gateframe], ['portal', P.portal], ['asteroid', P.asteroid],
   ['crystal', P.crystal], ['station', P.station], ['ember', P.ember], ['ash', P.ash],
   ['glass', glass(0xe8f6ff)], ['glass_sky', glass(0x7cc8f2)], ['glass_rose', glass(0xf59ac0)],
-  ['glass_amber', glass(0xf5c060)], ['glass_mint', glass(0x7fe0b0)],
+  ['glass_amber', glass(0xf5c060)], ['glass_mint', glass(0x7fe0b0)], ['lava', P.lava],
 ];
 const TILE_INDEX = new Map(TILES.map(([name], i) => [name, i]));
 
@@ -230,6 +236,7 @@ const FACES: Partial<Record<Block, [string, string, string]>> = {
   [Block.Station]: ['station', 'station', 'station'],
   [Block.Ember]: ['ember', 'ember', 'ember'],
   [Block.Ash]: ['ash', 'ash', 'ash'],
+  [Block.Lava]: ['lava', 'lava', 'lava'],
   [Block.GlassSky]: ['glass_sky', 'glass_sky', 'glass_sky'],
   [Block.GlassRose]: ['glass_rose', 'glass_rose', 'glass_rose'],
   [Block.GlassAmber]: ['glass_amber', 'glass_amber', 'glass_amber'],
