@@ -1,7 +1,14 @@
-import { CODE_ALPHABET, CODE_LENGTH, PlayerInfo, SeasonName, ServerMsg } from '../../server/src/protocol';
+import { CODE_ALPHABET, CODE_LENGTH, DimCode, PlayerInfo, SeasonName, ServerMsg } from '../../server/src/protocol';
 
 export { isRoomCode } from '../../server/src/protocol';
-export type { PlayerInfo } from '../../server/src/protocol';
+export type { DimCode, PlayerInfo } from '../../server/src/protocol';
+
+/** Splits a room edit key ("x,y,z", "f:x,y,z" or "s:x,y,z") into its dimension and coordinates. */
+export function parseEditKey(key: string): [DimCode, number, number, number] {
+  const d: DimCode = key.startsWith('f:') ? 1 : key.startsWith('s:') ? 2 : 0;
+  const [x, y, z] = (d ? key.slice(2) : key).split(',').map(Number);
+  return [d, x, y, z];
+}
 
 /** wss://… of the room server. Set EXPO_PUBLIC_SERVER_URL to point at a local `wrangler dev`. */
 export const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'wss://voxel-valley-server.voxel-valley-server.workers.dev';
@@ -17,7 +24,7 @@ export type Welcome = Extract<ServerMsg, { t: 'welcome' }>;
 
 export type RoomEvents = {
   onWelcome: (w: Welcome) => void;
-  onEdit: (x: number, y: number, z: number, b: number) => void;
+  onEdit: (x: number, y: number, z: number, b: number, d: DimCode) => void;
   onPlayers: (players: Map<string, PlayerInfo>) => void;
   onStatus: (status: 'connecting' | 'online' | 'offline', error?: string) => void;
 };
@@ -36,7 +43,7 @@ export class RoomClient {
   private lastPos = '';
   private lastPosAt = 0;
   /** Our own edits made while disconnected; re-sent after re-joining. */
-  private pending: [number, number, number, number][] = [];
+  private pending: [number, number, number, number, DimCode][] = [];
 
   constructor(readonly code: string, private hello: Hello, private readonly ev: RoomEvents) {
     this.connect();
@@ -74,14 +81,14 @@ export class RoomClient {
           this.ev.onWelcome(m);
         } else {
           for (const [key, b] of m.edits) {
-            const [x, y, z] = key.split(',').map(Number);
-            this.ev.onEdit(x, y, z, b);
+            const [d, x, y, z] = parseEditKey(key);
+            this.ev.onEdit(x, y, z, b, d);
           }
           const mine = this.pending;
           this.pending = [];
-          for (const [x, y, z, b] of mine) {
-            this.ev.onEdit(x, y, z, b);
-            this.sendEdit(x, y, z, b);
+          for (const [x, y, z, b, d] of mine) {
+            this.ev.onEdit(x, y, z, b, d);
+            this.sendEdit(x, y, z, b, d);
           }
         }
         this.lastPos = '';
@@ -96,11 +103,11 @@ export class RoomClient {
         break;
       case 'pos': {
         const p = this.players.get(m.id);
-        if (p) Object.assign(p, { x: m.x, y: m.y, z: m.z, yaw: m.yaw });
+        if (p) Object.assign(p, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, d: m.d ?? 0 });
         break;
       }
       case 'set':
-        this.ev.onEdit(m.x, m.y, m.z, m.b);
+        this.ev.onEdit(m.x, m.y, m.z, m.b, m.d ?? 0);
         break;
       case 'error':
         this.ev.onStatus('offline', m.message);
@@ -117,10 +124,10 @@ export class RoomClient {
   }
 
   /** Sends our position at most ~10 times a second, and only when it changed. */
-  sendPos(x: number, y: number, z: number, yaw: number, now: number) {
+  sendPos(x: number, y: number, z: number, yaw: number, d: DimCode, now: number) {
     if (now - this.lastPosAt < 100) return;
     const r = (v: number) => Math.round(v * 100) / 100;
-    const pos = { t: 'pos', x: r(x), y: r(y), z: r(z), yaw: r(yaw) };
+    const pos = { t: 'pos', x: r(x), y: r(y), z: r(z), yaw: r(yaw), d };
     const key = JSON.stringify(pos);
     if (key === this.lastPos) return;
     this.lastPos = key;
@@ -128,9 +135,9 @@ export class RoomClient {
     this.send(pos);
   }
 
-  sendEdit(x: number, y: number, z: number, b: number) {
-    if (this.open) this.send({ t: 'set', x, y, z, b });
-    else this.pending.push([x, y, z, b]);
+  sendEdit(x: number, y: number, z: number, b: number, d: DimCode) {
+    if (this.open) this.send({ t: 'set', x, y, z, b, d });
+    else this.pending.push([x, y, z, b, d]);
   }
 
   close() {

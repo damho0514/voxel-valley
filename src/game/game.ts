@@ -1,4 +1,5 @@
-import { Block, BLOCKS, isReplaceable, paletteFor } from './blocks';
+import { Block, BLOCKS, Dimension, isReplaceable, paletteFor, PORTAL_TARGET } from './blocks';
+import { arrival } from './dimensions';
 import { Body, collides, EYE_HEIGHT, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
 import { Hit, raycast } from './raycast';
 import { Save } from './storage';
@@ -17,11 +18,12 @@ export type Input = {
   lookDX: number; // accumulated pixels since last frame
   lookDY: number;
   jump: boolean;
+  down?: boolean; // space only: thrust downward
   dig: boolean;
   placeTap: boolean; // consumed once per press
 };
 
-export type SoundName = 'dig' | 'break' | 'place' | 'step' | 'jump' | 'splash';
+export type SoundName = 'dig' | 'break' | 'place' | 'step' | 'jump' | 'splash' | 'portal' | 'thrust';
 
 export type HudState = {
   selected: number;
@@ -32,15 +34,18 @@ export type HudState = {
 
 /** All gameplay state and rules; rendering-agnostic. */
 export class Game {
-  readonly world: World;
+  world: World;
+  private readonly worlds = new Map<Dimension, World>();
   readonly body: Body;
+  /** Velocity while floating in space. */
+  private vel = { x: 0, y: 0, z: 0 };
+  private portalCooldown = 0;
   yaw = 0;
   pitch = 0;
   selected = 0;
   target: Hit | null = null;
   /** Aim along this direction instead of the crosshair (a finger on a block). */
   aimRay: { x: number; y: number; z: number } | null = null;
-  readonly palette: Block[];
   time = 0.08; // 0 sunrise, 0.25 noon, 0.75 midnight
   private digProgress = 0;
   private digKey = '';
@@ -55,14 +60,67 @@ export class Game {
   /** Called when this player digs or places a block (for sending to a shared room). */
   onEdit: (x: number, y: number, z: number, b: Block) => void = () => {};
   onSound: (s: SoundName) => void = () => {};
+  /** Called after stepping through a gate into another dimension. */
+  onDimension: (dim: Dimension) => void = () => {};
 
   constructor(save: Save | null) {
-    this.world = new World(save?.seed ?? Math.floor(Math.random() * 2 ** 31), save?.season ?? 'summer');
-    this.palette = paletteFor(this.world.season);
-    for (const [key, b] of save?.edits ?? []) this.world.edits.set(key, b);
+    const seed = save?.seed ?? Math.floor(Math.random() * 2 ** 31);
+    const valley = new World(seed, save?.season ?? 'summer');
+    this.worlds.set('valley', valley);
+    for (const [key, b] of save?.edits ?? []) valley.edits.set(key, b);
+    for (const d of ['future', 'space'] as Dimension[]) for (const [key, b] of save?.dimEdits?.[d] ?? []) this.worldFor(d).edits.set(key, b);
+    this.world = this.worldFor(save?.dim ?? 'valley');
     const p = save?.pos ?? this.world.findSpawn(0, 0);
     this.body = { x: p[0], y: p[1], z: p[2], vy: 0, onGround: false };
     this.spawned = !!save?.pos;
+  }
+
+  get dim(): Dimension {
+    return this.world.dim;
+  }
+
+  get palette(): Block[] {
+    return paletteFor(this.world.season, this.world.dim);
+  }
+
+  /** The world for a dimension; same seed and season, created on first use. */
+  worldFor(dim: Dimension): World {
+    let w = this.worlds.get(dim);
+    if (!w) {
+      const valley = this.worlds.get('valley')!;
+      w = new World(valley.seed, valley.season, dim);
+      this.worlds.set(dim, w);
+    }
+    return w;
+  }
+
+  /** Steps through a gate: switch worlds and land at that dimension's arrival point. */
+  enterDimension(to: Dimension) {
+    const from = this.dim;
+    this.world = this.worldFor(to);
+    const a = arrival(this.world, to, from);
+    Object.assign(this.body, { x: a.pos[0], y: a.pos[1], z: a.pos[2], vy: 0 });
+    this.vel = { x: 0, y: 0, z: 0 };
+    this.yaw = a.yaw;
+    this.pitch = 0;
+    this.spawned = true;
+    this.portalCooldown = 1.5;
+    this.selected = Math.min(this.selected, this.palette.length - 1);
+    this.target = null;
+    this.dirty = true;
+    this.onSound('portal');
+    this.onDimension(to);
+  }
+
+  /** Gate under the player's body, if any. */
+  private portalHere(): Dimension | null {
+    const b = this.body;
+    for (let y = Math.floor(b.y); y <= Math.floor(b.y + PLAYER_HEIGHT - 0.01); y++)
+      for (const [dx, dz] of [[-PLAYER_HALF, -PLAYER_HALF], [PLAYER_HALF, PLAYER_HALF], [0, 0]]) {
+        const to = PORTAL_TARGET[this.world.get(Math.floor(b.x + dx), y, Math.floor(b.z + dz))];
+        if (to) return to;
+      }
+    return null;
   }
 
   get selectedBlock(): Block {
@@ -98,6 +156,23 @@ export class Game {
       this.spawned = true;
     }
 
+    this.portalCooldown -= dt;
+    if (this.portalCooldown <= 0) {
+      const to = this.portalHere();
+      if (to && to !== this.dim) {
+        this.enterDimension(to);
+        return;
+      }
+    }
+
+    if (this.dim === 'space') {
+      this.fly(dt, input);
+      this.aim();
+      this.updateDig(dt, input.dig);
+      if (input.placeTap) this.place();
+      return;
+    }
+
     // Walk relative to where we're looking (yaw only).
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const swim = inWater(this.world, this.body);
@@ -131,6 +206,34 @@ export class Game {
     this.aim();
     this.updateDig(dt, input.dig);
     if (input.placeTap) this.place();
+  }
+
+  /**
+   * Zero-gravity flight: thrust along where you look (joystick), straight up/down (buttons),
+   * with gentle drag so you drift to a stop.
+   */
+  private fly(dt: number, input: Input) {
+    const d = this.lookDir();
+    const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw); // right vector
+    const up = (input.jump ? 1 : 0) - (input.down ? 1 : 0);
+    const thrust = 9;
+    const v = this.vel;
+    v.x += (d.x * input.moveY + rx * input.moveX) * thrust * dt;
+    v.y += (d.y * input.moveY + up) * thrust * dt;
+    v.z += (d.z * input.moveY + rz * input.moveX) * thrust * dt;
+    const drag = Math.exp(-dt * 0.9);
+    v.x *= drag; v.y *= drag; v.z *= drag;
+    const speed = Math.hypot(v.x, v.y, v.z), max = 10;
+    if (speed > max) { v.x *= max / speed; v.y *= max / speed; v.z *= max / speed; }
+    if ((input.moveX || input.moveY || up) && Math.random() < dt * 4) this.onSound('thrust');
+    const before = { x: this.body.x, y: this.body.y, z: this.body.z };
+    move(this.world, this.body, v.x * dt, v.y * dt, v.z * dt);
+    // Bump: lose the velocity along any axis that hit something.
+    if (Math.abs(this.body.x - before.x) < Math.abs(v.x * dt) * 0.5) v.x = 0;
+    if (Math.abs(this.body.y - before.y) < Math.abs(v.y * dt) * 0.5) v.y = 0;
+    if (Math.abs(this.body.z - before.z) < Math.abs(v.z * dt) * 0.5) v.z = 0;
+    // Drifting too far out: a soft tether back toward the station.
+    if (this.body.y < -30 || this.body.y > 90) v.y += (this.body.y < 0 ? 1 : -1) * 20 * dt;
   }
 
   private aim() {
@@ -192,11 +295,13 @@ export class Game {
   }
 
   /** A block changed by another player in the room. */
-  applyRemoteEdit(x: number, y: number, z: number, b: Block) {
+  applyRemoteEdit(x: number, y: number, z: number, b: Block, dim: Dimension = 'valley') {
     if (y < 0 || y >= HEIGHT) return;
+    const w = this.worldFor(dim);
     // Only touch chunk data that's already loaded; unloaded chunks pick the edit up when generated.
-    if (this.world.hasChunk(toChunk(x), toChunk(z))) this.world.set(x, y, z, b);
-    else this.world.edits.set(`${x},${y},${z}`, b);
+    if (w.hasChunk(toChunk(x), toChunk(z))) w.set(x, y, z, b);
+    else w.edits.set(`${x},${y},${z}`, b);
+    if (w !== this.world) return;
     // If it landed on us, step up out of it.
     const p = this.body;
     if (collides(this.world, p.x, p.y, p.z)) p.y = Math.min(HEIGHT, y + 1);
@@ -220,7 +325,9 @@ export class Game {
     return {
       seed: this.world.seed,
       season: this.world.season,
-      edits: [...this.world.edits.entries()],
+      edits: [...this.worldFor('valley').edits.entries()],
+      dim: this.dim,
+      dimEdits: { future: [...this.worldFor('future').edits.entries()], space: [...this.worldFor('space').edits.entries()] },
       pos: [this.body.x, this.body.y, this.body.z],
     };
   }

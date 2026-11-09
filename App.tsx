@@ -3,14 +3,18 @@ import { GLView, ExpoWebGLRenderingContext } from 'expo-gl';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Animated, AppState, Linking, Platform, Pressable, Share, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { sound } from './src/audio/sound';
-import { Block, BLOCKS, Season, SEASON_INFO, SEASONS } from './src/game/blocks';
-import { Bot, spawnBots } from './src/game/bots';
+import { Block, BLOCKS, Dimension, DIMENSION_INFO, Season, SEASON_INFO, SEASONS } from './src/game/blocks';
+import { VALLEY_GATES } from './src/game/dimensions';
+import { Bot, spawnBots, spawnRobots } from './src/game/bots';
 import { Game, HudState, Input } from './src/game/game';
 import { clearSave, loadSave, Save, savedSeasons, writeSave } from './src/game/storage';
-import { isRoomCode, newRoomCode, PlayerInfo, RoomClient, Welcome } from './src/net/room';
+import { DimCode, isRoomCode, newRoomCode, parseEditKey, PlayerInfo, RoomClient, Welcome } from './src/net/room';
+
+const DIMS: Dimension[] = ['valley', 'future', 'space'];
+const dimCode = (d: Dimension) => DIMS.indexOf(d) as DimCode;
 import { VoxelRenderer } from './src/render/renderer';
 import { HoldButton, Joystick, TouchPad } from './src/ui/controls';
 
@@ -148,7 +152,10 @@ const titleBg: Record<Season, string> = { spring: '#5b4a63', summer: '#2f4b5c', 
 type Touch = { tap: { x: number; y: number } | null; hold: { x: number; y: number } | null };
 
 function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profile; onProfile: (p: Profile) => void; onExit: () => void }) {
-  const inputRef = useRef<Input>({ moveX: 0, moveY: 0, lookDX: 0, lookDY: 0, jump: false, dig: false, placeTap: false });
+  const inputRef = useRef<Input>({ moveX: 0, moveY: 0, lookDX: 0, lookDY: 0, jump: false, down: false, dig: false, placeTap: false });
+  const [dim, setDim] = useState<Dimension>('valley');
+  const [hint, setHint] = useState<string | null>(null);
+  const flash = useRef(new Animated.Value(0)).current;
   const touchRef = useRef<Touch>({ tap: null, hold: null });
   const gameRef = useRef<Game | null>(null);
   const roomRef = useRef<RoomClient | null>(null);
@@ -192,6 +199,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       input.moveY = (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0);
       input.moveX = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
       input.jump = keys.has(' ');
+      input.down = keys.has('shift') || keys.has('c');
       input.dig = keys.has('f');
     };
     const down = (e: KeyboardEvent) => {
@@ -215,7 +223,7 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       let count = 0;
       roomRef.current = new RoomClient(code, hello, {
         onWelcome: resolve,
-        onEdit: (x, y, z, b) => gameRef.current?.applyRemoteEdit(x, y, z, b as Block),
+        onEdit: (x, y, z, b, d) => gameRef.current?.applyRemoteEdit(x, y, z, b as Block, DIMS[d]),
         onPlayers: (ps) => {
           if (ps.size > count) sound.play('join');
           else if (ps.size < count) sound.play('leave');
@@ -237,7 +245,15 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       const w = await connect({ t: 'join', name: profile.name, color: profile.color }, mode.code);
       // Spawn beside someone already there, if anyone has a position yet.
       const near = w.players.find((p) => p.y > -50);
-      start = { seed: w.seed, season: w.season, edits: w.edits as [string, Block][], pos: near ? [near.x + 1, near.y + 0.5, near.z] : undefined };
+      // Room edits for every dimension come in one list; sort them into worlds.
+      const byDim: Record<Dimension, [string, Block][]> = { valley: [], future: [], space: [] };
+      for (const [key, b] of w.edits) {
+        const [d, x, y, z] = parseEditKey(key);
+        byDim[DIMS[d]].push([`${x},${y},${z}`, b as Block]);
+      }
+      const nearValley = near && near.d === 0 ? near : undefined;
+      start = { seed: w.seed, season: w.season, edits: byDim.valley, dimEdits: { future: byDim.future, space: byDim.space },
+        pos: nearValley ? [nearValley.x + 1, nearValley.y + 0.5, nearValley.z] : undefined };
       setLoading('계곡을 만드는 중...');
     } else if (mode.kind === 'solo' && !mode.fresh) {
       start = await loadSave(mode.season);
@@ -247,12 +263,27 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
 
     const game = new Game(start);
     gameRef.current = game;
+    // Handle for browser-driven tests of the dev build.
+    if (__DEV__ && Platform.OS === 'web') (globalThis as { __vvGame?: Game }).__vvGame = game;
     setPalette(game.palette);
     const view = new VoxelRenderer(gl, game.world);
-    view.setSeason(game.world.season);
+    view.setDimension(game.dim, game.world.season);
+    sound.setTrack(game.dim);
+    setDim(game.dim);
     game.onBlockChanged = (x, z) => view.blockChanged(x, z);
-    game.onEdit = (x, y, z, b) => roomRef.current?.sendEdit(x, y, z, b);
+    game.onEdit = (x, y, z, b) => roomRef.current?.sendEdit(x, y, z, b, dimCode(game.dim));
     game.onSound = (s) => sound.play(s);
+    game.onDimension = (d) => {
+      view.setWorld(game.world);
+      view.setDimension(d, game.world.season);
+      sound.setTrack(d);
+      botsRef.current = [];
+      ready = false;
+      setDim(d);
+      setPalette(game.palette);
+      flash.setValue(1);
+      Animated.timing(flash, { toValue: 0, duration: 1200, useNativeDriver: false }).start();
+    };
     if (mode.kind === 'host') {
       void connect({ t: 'create', name: profile.name, color: profile.color, seed: game.world.seed, season: game.world.season, edits: [] }, mode.code);
     }
@@ -278,14 +309,19 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       input.placeTap = false;
       touch.tap = null;
 
-      if (ready && mode.kind === 'solo' && botsRef.current.length === 0) botsRef.current = spawnBots(game.world, game.body);
+      // Friends in the solo valley; robot citizens in the future city (in rooms too).
+      if (ready && botsRef.current.length === 0) {
+        if (game.dim === 'valley' && mode.kind === 'solo') botsRef.current = spawnBots(game.world, game.body);
+        else if (game.dim === 'future') botsRef.current = spawnRobots(game.world, game.body);
+      }
       for (const bot of botsRef.current) bot.update(game.world, Math.min(dt, 0.05), game.body);
 
       const room = roomRef.current;
-      if (room && ready) room.sendPos(game.body.x, game.body.y, game.body.z, game.yaw, now);
+      const d = dimCode(game.dim);
+      if (room && ready) room.sendPos(game.body.x, game.body.y, game.body.z, game.yaw, d, now);
       const others = [
-        ...(room ? room.players.values() : []),
-        ...botsRef.current.map((b) => ({ id: b.id, color: b.color, x: b.body.x, y: b.body.y, z: b.body.z, yaw: b.yaw })),
+        ...(room ? [...room.players.values()].filter((p) => (p.d ?? 0) === d) : []),
+        ...botsRef.current.map((b) => ({ id: b.id, color: b.color, x: b.body.x, y: b.body.y, z: b.body.z, yaw: b.yaw, robot: b.robot })),
       ];
       view.setAvatars(others, dt);
 
@@ -300,6 +336,19 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       if (now - lastHud > 120) {
         lastHud = now;
         setHud(game.hud());
+        let near: string | null = null;
+        if (game.dim === 'valley') {
+          for (const g of VALLEY_GATES) {
+            if (Math.hypot(game.body.x - g.cx, game.body.z - g.z) < 7) {
+              near = `${DIMENSION_INFO[g.to].emoji} ${DIMENSION_INFO[g.to].name}로 가는 문 — 빛 속으로 걸어 들어가세요`;
+            }
+          }
+        } else if (game.dim === 'space') {
+          near = '🌌 무중력: 조이스틱=바라보는 방향으로 추진 · ▲▼=위아래';
+        } else if (Math.hypot(game.body.x - 1, game.body.z + 8) < 7) {
+          near = '🏞️ 계곡으로 돌아가는 문';
+        }
+        setHint(near);
         if (ready) setLoading(null);
       }
       requestAnimationFrame(frame);
@@ -312,9 +361,12 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
   const shareCode = () => {
     if (code) Share.share({ message: `Voxel Valley에서 같이 놀자! 앱에서 방 코드 ${code} 입력하고 참가` }).catch(() => {});
   };
-  const roster = mode.kind === 'solo'
-    ? botsRef.current.map((b) => ({ id: b.id, name: `${b.name} (봇)`, color: b.color }))
-    : players;
+  const robots = botsRef.current.filter((b) => b.robot).length;
+  const roster = [
+    ...players.map((p) => ({ ...p, name: (p.d ?? 0) !== dimCode(dim) ? `${p.name} (${DIMENSION_INFO[DIMS[p.d ?? 0]].name})` : p.name })),
+    ...botsRef.current.filter((b) => !b.robot).map((b) => ({ id: b.id, name: `${b.name} (봇)`, color: b.color })),
+    ...(robots ? [{ id: 'robots', name: `로봇 시민 ${robots}명`, color: 0xc9d0da }] : []),
+  ];
   const season = gameRef.current?.world.season;
 
   return (
@@ -330,7 +382,11 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       </View>
 
       <Text pointerEvents="none" style={styles.info}>
-        {hud ? `${season ? `${SEASON_INFO[season].emoji} ` : ''}${hud.timeLabel}${hud.target ? `  ·  ${hud.target}` : ''}` : ''}
+        {hud ? [
+          dim !== 'valley' ? `${DIMENSION_INFO[dim].emoji} ${DIMENSION_INFO[dim].name}` : season ? `${SEASON_INFO[season].emoji} ${hud.timeLabel}` : hud.timeLabel,
+          dim === 'future' ? hud.timeLabel : null,
+          hud.target,
+        ].filter(Boolean).join('  ·  ') : ''}
       </Text>
       <View style={styles.roomBox}>
         {code && (
@@ -366,7 +422,14 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       <Joystick onMove={(x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
       <HoldButton label="캐기" color="#e07a6e" style={{ right: 118, bottom: 96 }} onChange={(h) => { inputRef.current.dig = h; }} />
       <HoldButton label="놓기" color="#5fb37f" style={{ right: 28, bottom: 132 }} onChange={(h) => { if (h) inputRef.current.placeTap = true; }} />
-      <HoldButton label="점프" color="#56657a" style={{ right: 28, bottom: 36 }} onChange={(h) => { inputRef.current.jump = h; }} />
+      {dim === 'space' ? (
+        <>
+          <HoldButton label="▲" color="#6b5fd6" style={{ right: 28, bottom: 36 }} onChange={(h) => { inputRef.current.jump = h; }} />
+          <HoldButton label="▼" color="#3d3f73" style={{ right: 104, bottom: 2 }} onChange={(h) => { inputRef.current.down = h; }} />
+        </>
+      ) : (
+        <HoldButton label="점프" color="#56657a" style={{ right: 28, bottom: 36 }} onChange={(h) => { inputRef.current.jump = h; }} />
+      )}
 
       <View style={styles.hotbar}>
         {palette.map((b, i) => (
@@ -379,6 +442,9 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
       {hud && palette.length > 0 && (
         <Text pointerEvents="none" style={styles.selectedName}>{`${BLOCKS[palette[hud.selected]].name} · 무제한`}</Text>
       )}
+
+      {hint && !loading && <Text pointerEvents="none" style={styles.hint}>{hint}</Text>}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: dim === 'space' ? '#1a1240' : '#e8fbff', opacity: flash }]} />
 
       {loading && (
         <View style={styles.loading}>
@@ -443,6 +509,8 @@ const styles = StyleSheet.create({
   swatch: { width: 24, height: 24, borderRadius: 7 },
   selectedName: { position: 'absolute', bottom: 58, alignSelf: 'center', color: 'white', fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 3 },
+  hint: { position: 'absolute', top: 54, alignSelf: 'center', color: 'white', fontSize: 14, fontWeight: '700', paddingHorizontal: 12,
+    paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(30,40,60,0.45)', overflow: 'hidden' },
   loading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#2f4b5c', alignItems: 'center', justifyContent: 'center', gap: 10 },
   loadingText: { color: 'white', fontSize: 18, textAlign: 'center', paddingHorizontal: 30 },
   loadingHint: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },

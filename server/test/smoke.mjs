@@ -57,6 +57,10 @@ guest.send({ t: 'set', x: 5, y: 22, z: 5, b: 9 });
 const s = await host.next((m) => m.t === 'set');
 check(s.x === 5 && s.b === 9, 'block edits are relayed');
 
+guest.send({ t: 'set', x: 7, y: 30, z: 7, b: 25, d: 2 });
+const sd = await host.next((m) => m.t === 'set');
+check(sd.d === 2 && sd.b === 25, 'space edits keep their dimension');
+
 guest.send({ t: 'set', x: 5, y: 999, z: 5, b: 9 });
 check((await guest.next((m) => m.t === 'error')).code === 'bad-message', 'out-of-range edits are rejected');
 
@@ -65,6 +69,7 @@ await late.opened;
 late.send({ t: 'join', name: '늦게', color: 2 });
 const lw = await late.next((m) => m.t === 'welcome');
 check(lw.edits.some(([k, b]) => k === '5,22,5' && b === 9) && lw.players.length === 2, 'late joiner gets new edits and both players');
+check(lw.edits.some(([k, b]) => k === 's:7,30,7' && b === 25), 'late joiner gets edits from other dimensions');
 const lp = lw.players.find((pl) => pl.id === hw.id);
 check(lp && lp.x === 3.5, 'late joiner gets last known positions');
 

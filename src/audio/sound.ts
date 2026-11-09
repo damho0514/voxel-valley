@@ -11,6 +11,11 @@ import joinWav from '../../assets/sounds/join.wav';
 import leaveWav from '../../assets/sounds/leave.wav';
 import tapWav from '../../assets/sounds/tap.wav';
 import musicWav from '../../assets/sounds/music.wav';
+import portalWav from '../../assets/sounds/portal.wav';
+import thrustWav from '../../assets/sounds/thrust.wav';
+import futureWav from '../../assets/sounds/future.wav';
+import spaceWav from '../../assets/sounds/space.wav';
+import type { Dimension } from '../game/blocks';
 
 // Every sound is synthesised by tools/gen_sounds.py — no samples, no third-party rights.
 const FILES = {
@@ -24,12 +29,17 @@ const FILES = {
   join: joinWav,
   leave: leaveWav,
   tap: tapWav,
+  portal: portalWav,
+  thrust: thrustWav,
 };
+const TRACKS: Record<Dimension, number> = { valley: musicWav, future: futureWav, space: spaceWav };
+const TRACK_VOLUME: Record<Dimension, number> = { valley: 0.35, future: 0.3, space: 0.5 };
 type FileName = keyof typeof FILES;
 export type Sfx = Exclude<FileName, 'step1' | 'step2'> | 'step';
 
 const VOLUME: Record<FileName, number> = {
   dig: 0.5, break: 0.8, place: 0.7, step1: 0.35, step2: 0.35, jump: 0.4, splash: 0.7, join: 0.6, leave: 0.5, tap: 0.4,
+  portal: 0.8, thrust: 0.25,
 };
 const MUTE_KEY = 'voxel-valley-go/muted';
 
@@ -40,6 +50,7 @@ const MUTE_KEY = 'voxel-valley-go/muted';
 class Sound {
   private pools = new Map<FileName, { players: AudioPlayer[]; next: number }>();
   private music: AudioPlayer | null = null;
+  private track: Dimension = 'valley';
   private loaded = false;
   private stepFlip = false;
   muted = false;
@@ -59,10 +70,7 @@ class Sound {
         });
         this.pools.set(name, { players, next: 0 });
       }
-      this.music = createAudioPlayer(musicWav);
-      this.music.loop = true;
-      this.music.volume = 0.35;
-      if (this.musicWanted && !this.muted) this.music.play();
+      this.makeMusic();
     } catch (e) {
       console.warn('audio unavailable', e);
     }
@@ -80,6 +88,23 @@ class Sound {
       p.seekTo(0).catch(() => {});
       p.play();
     } catch {}
+  }
+
+  private makeMusic() {
+    try {
+      this.music?.remove();
+    } catch {}
+    this.music = createAudioPlayer(TRACKS[this.track]);
+    this.music.loop = true;
+    this.music.volume = TRACK_VOLUME[this.track];
+    if (this.musicWanted && !this.muted) this.music.play();
+  }
+
+  /** Background music for the dimension you're in. */
+  setTrack(dim: Dimension) {
+    if (dim === this.track) return;
+    this.track = dim;
+    if (this.loaded) this.makeMusic();
   }
 
   startMusic() {

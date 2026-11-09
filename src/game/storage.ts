@@ -1,12 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Block, Season } from './blocks';
+import { Block, Dimension, Season } from './blocks';
 
 // One saved world per season. The pre-season save (a summer-looking world) lives under the old key.
 const LEGACY_KEY = 'voxel-valley-go/save-v1';
 const keyFor = (season: Season) => `voxel-valley-go/save-v1-${season}`;
 
 // Older saves also carry an `inventory` field; it is ignored now that blocks are unlimited.
-export type Save = { seed: number; season?: Season; edits: [string, Block][]; pos?: [number, number, number] };
+export type Save = {
+  seed: number;
+  season?: Season;
+  edits: [string, Block][]; // the valley
+  pos?: [number, number, number];
+  dim?: Dimension; // where the player is
+  dimEdits?: Partial<Record<Dimension, [string, Block][]>>; // the future city and space
+};
 
 export async function loadSave(season: Season): Promise<Save | null> {
   try {

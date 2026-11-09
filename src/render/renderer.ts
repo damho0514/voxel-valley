@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import type { ExpoWebGLRenderingContext } from 'expo-gl';
 import { Platform } from 'react-native';
-import type { Season } from '../game/blocks';
+import type { Dimension, Season } from '../game/blocks';
 import { buildChunkMesh, MeshArrays } from '../game/mesher';
 import { CHUNK, chunkKey, toChunk, World } from '../game/world';
 
 /** Where another player is, as the renderer needs it. */
-export type Avatar = { id: string; color: number; x: number; y: number; z: number; yaw: number };
+export type Avatar = { id: string; color: number; x: number; y: number; z: number; yaw: number; robot?: boolean };
+
+const SKY_FUTURE = 0x9db3da;
+const SKY_SPACE = new THREE.Color(0x03040b);
+const CAR_COLORS = [0xff6f91, 0x5ff2ff, 0xffd166, 0xa47bff, 0xf4f7fb, 0x7cf29c];
 
 // Colours in this game are authored as plain sRGB values and shown as-is.
 THREE.ColorManagement.enabled = false;
@@ -55,6 +59,11 @@ export class VoxelRenderer {
   readonly renderer: THREE.WebGLRenderer;
   private readonly solidMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   private readonly waterMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false, side: THREE.DoubleSide });
+  private readonly glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  private readonly portalMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
+  private dim: Dimension = 'valley';
+  private extras: THREE.Object3D[] = []; // per-dimension scenery (stars, planets, cars)
+  private cars: { mesh: THREE.Group; axis: 'x' | 'z'; lane: number; y: number; speed: number; offset: number }[] = [];
   private readonly meshes = new Map<string, THREE.Group>();
   private readonly highlight: THREE.LineSegments;
   private readonly avatars = new Map<string, THREE.Group>();
@@ -69,7 +78,7 @@ export class VoxelRenderer {
   private clock = 0;
   viewRadius = 3;
 
-  constructor(private readonly gl: ExpoWebGLRenderingContext, private readonly world: World) {
+  constructor(private readonly gl: ExpoWebGLRenderingContext, private world: World) {
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
     // three.js wants a canvas; expo-gl gives a bare context, so pass a stub.
     const canvas = {
@@ -154,9 +163,141 @@ export class VoxelRenderer {
     (w.points.material as THREE.PointsMaterial).color.setHex(w.spec.color).multiplyScalar(this.daylight);
   }
 
+  /** Swaps in another world (after going through a gate): drops every chunk mesh. */
+  setWorld(world: World) {
+    for (const group of this.meshes.values()) this.dispose(group);
+    this.meshes.clear();
+    this.world = world;
+  }
+
+  /** Sky, fog, camera range and scenery for a dimension. */
+  setDimension(dim: Dimension, season: Season) {
+    this.dim = dim;
+    for (const o of this.extras) {
+      this.scene.remove(o);
+      o.traverse((m) => { if (m instanceof THREE.Mesh || m instanceof THREE.Points) m.geometry.dispose(); });
+    }
+    this.extras = [];
+    this.cars = [];
+    this.setSeason(season);
+    const fog = this.scene.fog as THREE.Fog;
+    if (dim === 'valley') {
+      fog.near = 28; fog.far = 46; this.camera.far = 140;
+    } else if (dim === 'future') {
+      this.setSeason('summer');
+      this.skyDay = new THREE.Color(SKY_FUTURE);
+      if (this.weather) { this.scene.remove(this.weather.points); this.weather = null; }
+      fog.near = 30; fog.far = 56; this.camera.far = 160;
+      this.buildCars();
+    } else {
+      if (this.weather) { this.scene.remove(this.weather.points); this.weather = null; }
+      this.skyDay = SKY_SPACE.clone();
+      fog.near = 300; fog.far = 900; this.camera.far = 1200;
+      this.buildSpace();
+    }
+    this.camera.updateProjectionMatrix();
+  }
+
+  private addExtra(o: THREE.Object3D) {
+    this.extras.push(o);
+    this.scene.add(o);
+  }
+
+  /** Stars that follow the camera, two planets, a ringed giant and a distant sun. */
+  private buildSpace() {
+    const n = 1600, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = 700;
+      const s = Math.sqrt(1 - u * u);
+      pos.set([Math.cos(a) * s * r, u * r, Math.sin(a) * s * r], i * 3);
+      const tint = Math.random();
+      col.set(tint < 0.15 ? [0.75, 0.82, 1] : tint < 0.25 ? [1, 0.9, 0.75] : [1, 1, 1], i * 3);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const stars = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, vertexColors: true, fog: false }));
+    stars.name = 'stars';
+    stars.frustumCulled = false;
+    this.addExtra(stars);
+
+    const planet = (r: number, x: number, y: number, z: number, bands: number[], ring?: number) => {
+      const geo = new THREE.SphereGeometry(r, 40, 24);
+      const p = geo.attributes.position as THREE.BufferAttribute;
+      const colors = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) {
+        const t = (p.getY(i) / r + 1) / 2; // 0 bottom .. 1 top
+        const k = Math.min(bands.length - 1, Math.floor(t * bands.length + Math.sin(t * 40) * 0.3));
+        const c = new THREE.Color(bands[Math.max(0, k)]);
+        colors.set([c.r, c.g, c.b], i * 3);
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
+      m.position.set(x, y, z);
+      m.rotation.z = 0.35;
+      if (ring) {
+        const rg = new THREE.Mesh(new THREE.RingGeometry(r * 1.35, r * ring, 64),
+          new THREE.MeshBasicMaterial({ color: 0xd9c7a0, side: THREE.DoubleSide, transparent: true, opacity: 0.55, fog: false }));
+        rg.rotation.x = Math.PI / 2.3;
+        m.add(rg);
+      }
+      this.addExtra(m);
+    };
+    planet(120, -380, 140, -520, [0x8a6a4f, 0xc9a77c, 0xe6d3b0, 0xb98a5e, 0xe9dcc4, 0xa3775a], 2.1);
+    planet(60, 420, -60, -300, [0x1f4f8f, 0x2f7bd0, 0x3fa36b, 0x2f7bd0, 0x9fd3ff, 0xffffff]);
+    planet(30, 120, 80, 460, [0xc96a5a, 0xe08b6a, 0xb85a4a]);
+    const sun = new THREE.Mesh(new THREE.SphereGeometry(45, 32, 16), new THREE.MeshBasicMaterial({ color: 0xfff2c8, fog: false }));
+    sun.position.set(-200, 420, 520);
+    this.addExtra(sun);
+  }
+
+  private buildCars() {
+    for (let i = 0; i < 16; i++) {
+      const color = CAR_COLORS[i % CAR_COLORS.length];
+      const car = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.55, 2.4), new THREE.MeshBasicMaterial({ color }));
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.45, 1.1), new THREE.MeshBasicMaterial({ color: 0x24313a }));
+      cabin.position.set(0, 0.45, -0.1);
+      const glowL = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.08), new THREE.MeshBasicMaterial({ color: 0xff4d6d }));
+      glowL.position.set(0, 0, 1.22);
+      const under = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 1.8), new THREE.MeshBasicMaterial({ color: 0x5ff2ff }));
+      under.position.set(0, -0.3, 0);
+      car.add(body, cabin, glowL, under);
+      this.addExtra(car);
+      // Sky lanes run above the street grid (roads at x,z ≡ 0..3 mod 20).
+      this.cars.push({
+        mesh: car, axis: i % 2 ? 'x' : 'z', lane: (Math.floor(i / 2) - 4) * 20 + 2,
+        y: 18 + (i % 4) * 5 + Math.random() * 2, speed: (8 + Math.random() * 8) * (i % 3 ? 1 : -1), offset: Math.random() * 200,
+      });
+    }
+  }
+
+  /** Moves the flying cars along their lanes, wrapping around the camera so traffic never ends. */
+  private updateScenery(dt: number) {
+    const c = this.camera.position;
+    const stars = this.extras.find((o) => o.name === 'stars');
+    if (stars) stars.position.copy(c);
+    this.clockCars += dt;
+    for (const car of this.cars) {
+      const along = car.offset + this.clockCars * car.speed;
+      const center = car.axis === 'z' ? c.z : c.x;
+      const span = 160;
+      const t = center + ((((along - center + span / 2) % span) + span) % span) - span / 2;
+      const laneBase = (car.axis === 'z' ? Math.round(c.x / 20) : Math.round(c.z / 20)) * 20;
+      const lane = laneBase + car.lane;
+      if (car.axis === 'z') car.mesh.position.set(lane, car.y, t);
+      else car.mesh.position.set(t, car.y, lane);
+      car.mesh.rotation.y = car.axis === 'z' ? (car.speed > 0 ? Math.PI : 0) : car.speed > 0 ? -Math.PI / 2 : Math.PI / 2;
+      car.mesh.position.y += Math.sin(this.clockCars * 2 + car.offset) * 0.15;
+    }
+    this.portalMat.opacity = 0.55 + 0.2 * Math.sin(this.clockCars * 3);
+  }
+  private clockCars = 0;
+
   /** 0..1 daylight tints the sky, fog and every block. */
   setDaylight(d: number) {
-    const sky = SKY_NIGHT.clone().lerp(this.skyDay, d);
+    if (this.dim === 'space') d = 1;
+    const sky = this.dim === 'space' ? SKY_SPACE : SKY_NIGHT.clone().lerp(this.skyDay, d);
     this.renderer.setClearColor(sky);
     (this.scene.fog as THREE.Fog).color.copy(sky);
     const k = 0.3 + 0.7 * d;
@@ -168,22 +309,37 @@ export class VoxelRenderer {
 
   private tintAvatar(a: THREE.Group) {
     a.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
+      if (o instanceof THREE.Mesh && !o.userData.glow) {
         const m = o.material as THREE.MeshBasicMaterial;
         m.color.copy(o.userData.base as THREE.Color).multiplyScalar(this.daylight);
       }
     });
   }
 
-  private makeAvatar(color: number) {
-    const part = (geo: THREE.BufferGeometry, c: THREE.Color, y: number, z = 0) => {
-      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+  private makeAvatar(color: number, robot = false) {
+    const part = (geo: THREE.BufferGeometry, c: THREE.Color, y: number, z = 0, glow = false) => {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: c }));
       m.userData.base = c;
+      m.userData.glow = glow;
       m.position.set(0, y, z);
       return m;
     };
     const base = new THREE.Color(color);
     const g = new THREE.Group();
+    if (robot) {
+      // A humanoid robot: silver body, glowing visor, a chest light and an antenna.
+      const silver = new THREE.Color(0xc9d0da);
+      g.add(part(new THREE.BoxGeometry(0.22, 0.75, 0.24), silver.clone().multiplyScalar(0.8), 0.37, 0).translateX(-0.15));
+      g.add(part(new THREE.BoxGeometry(0.22, 0.75, 0.24), silver.clone().multiplyScalar(0.8), 0.37, 0).translateX(0.15));
+      g.add(part(new THREE.BoxGeometry(0.62, 0.7, 0.36), silver, 1.07));
+      g.add(part(new THREE.BoxGeometry(0.2, 0.2, 0.04), base, 1.12, -0.19, true));
+      g.add(part(new THREE.BoxGeometry(0.5, 0.48, 0.48), silver.clone().lerp(new THREE.Color(1, 1, 1), 0.3), 1.68));
+      g.add(part(new THREE.BoxGeometry(0.42, 0.12, 0.04), new THREE.Color(0x5ff2ff), 1.72, -0.25, true));
+      g.add(part(new THREE.BoxGeometry(0.04, 0.22, 0.04), silver, 2.02));
+      g.add(part(new THREE.BoxGeometry(0.1, 0.1, 0.1), base, 2.15, 0, true));
+      this.tintAvatar(g);
+      return g;
+    }
     g.add(part(this.avatarGeo.body, base.clone().multiplyScalar(0.8), 0.45));
     g.add(part(this.avatarGeo.head, base.clone().lerp(new THREE.Color(1, 1, 1), 0.25), 1.22));
     // Forward is -z (matches the camera at yaw 0).
@@ -201,7 +357,7 @@ export class VoxelRenderer {
       seen.add(p.id);
       let a = this.avatars.get(p.id);
       if (!a) {
-        a = this.makeAvatar(p.color);
+        a = this.makeAvatar(p.color, p.robot);
         a.position.set(p.x, p.y, p.z);
         a.rotation.y = p.yaw;
         this.avatars.set(p.id, a);
@@ -253,10 +409,16 @@ export class VoxelRenderer {
     const key = chunkKey(cx, cz);
     const old = this.meshes.get(key);
     if (old) this.dispose(old);
-    const { solid, water } = buildChunkMesh(this.world, cx, cz);
+    const { solid, water, glow, portal } = buildChunkMesh(this.world, cx, cz);
     const group = new THREE.Group();
     group.position.set(cx * CHUNK, 0, cz * CHUNK);
     if (solid.indices.length) group.add(new THREE.Mesh(geometryOf(solid), this.solidMat));
+    if (glow.indices.length) group.add(new THREE.Mesh(geometryOf(glow), this.glowMat));
+    if (portal.indices.length) {
+      const m = new THREE.Mesh(geometryOf(portal), this.portalMat);
+      m.renderOrder = 2;
+      group.add(m);
+    }
     if (water.indices.length) {
       const m = new THREE.Mesh(geometryOf(water), this.waterMat);
       m.renderOrder = 1;
@@ -283,6 +445,7 @@ export class VoxelRenderer {
 
   render(dt = 0) {
     this.updateWeather(Math.min(dt, 0.1));
+    this.updateScenery(Math.min(dt, 0.1));
     this.renderer.render(this.scene, this.camera);
     this.gl.endFrameEXP();
   }

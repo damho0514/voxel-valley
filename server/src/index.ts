@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { isRoomCode, MAX_PLAYERS, parseClientMsg, PlayerInfo, SeasonName, ServerMsg } from './protocol';
+import { DIM_PREFIX, isRoomCode, MAX_PLAYERS, parseClientMsg, PlayerInfo, SeasonName, ServerMsg } from './protocol';
 
 type Env = { ROOMS: DurableObjectNamespace<Room> };
 
@@ -103,7 +103,7 @@ export class Room extends DurableObject<Env> {
         ws.close(4003, 'full');
         return;
       }
-      const info: PlayerInfo = { id: crypto.randomUUID().slice(0, 8), name: msg.name, color: msg.color, x: 0, y: -100, z: 0, yaw: 0 };
+      const info: PlayerInfo = { id: crypto.randomUUID().slice(0, 8), name: msg.name, color: msg.color, x: 0, y: -100, z: 0, yaw: 0, d: 0 };
       const others = this.players().map((p) => p.info);
       ws.serializeAttachment(info);
       this.send(ws, { t: 'welcome', id: info.id, seed: this.seed, season: this.season, edits: [...this.edits], players: others });
@@ -113,12 +113,12 @@ export class Room extends DurableObject<Env> {
 
     if (!me) return; // must create/join first
     if (msg.t === 'pos') {
-      ws.serializeAttachment({ ...me, x: msg.x, y: msg.y, z: msg.z, yaw: msg.yaw });
-      this.broadcast({ t: 'pos', id: me.id, x: msg.x, y: msg.y, z: msg.z, yaw: msg.yaw }, ws);
+      ws.serializeAttachment({ ...me, x: msg.x, y: msg.y, z: msg.z, yaw: msg.yaw, d: msg.d });
+      this.broadcast({ t: 'pos', id: me.id, x: msg.x, y: msg.y, z: msg.z, yaw: msg.yaw, d: msg.d }, ws);
     } else if (msg.t === 'set') {
-      const key = `${msg.x},${msg.y},${msg.z}`;
+      const key = `${DIM_PREFIX[msg.d]}${msg.x},${msg.y},${msg.z}`;
       this.edits.set(key, msg.b);
-      this.broadcast({ t: 'set', x: msg.x, y: msg.y, z: msg.z, b: msg.b }, ws);
+      this.broadcast({ t: 'set', x: msg.x, y: msg.y, z: msg.z, b: msg.b, d: msg.d }, ws);
       await this.ctx.storage.put(`e:${key}`, msg.b);
     }
   }

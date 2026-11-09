@@ -1,4 +1,5 @@
-import { Block, BLOCKS, isReplaceable, Season } from './blocks';
+import { Block, BLOCKS, Dimension, isReplaceable, Season } from './blocks';
+import { CITY_GROUND, futureStructures, generateFuture, generateSpace, Placed, spaceStructures, valleyStructures } from './dimensions';
 import { Noise } from './noise';
 
 export const CHUNK = 16;
@@ -38,7 +39,9 @@ export class World {
   /** The block that covers the ground this season. */
   readonly ground: Block;
 
-  constructor(readonly seed: number, readonly season: Season = 'summer') {
+  private structures: Map<string, Placed[]> | null = null;
+
+  constructor(readonly seed: number, readonly season: Season = 'summer', readonly dim: Dimension = 'valley') {
     this.noise = new Noise(seed);
     this.ground = season === 'winter' ? Block.Snow : season === 'autumn' ? Block.DryGrass : Block.Moss;
   }
@@ -90,10 +93,12 @@ export class World {
         for (let dz = -r; dz <= r; dz++) {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           const px = x + dx, pz = z + dz;
-          let y = HEIGHT - 2;
+          // In the city, stand on the street rather than a rooftop.
+          let y = this.dim === 'future' ? CITY_GROUND : HEIGHT - 2;
           while (y > 0 && !this.isSolid(px, y, pz)) y--;
           const ground = this.get(px, y, pz);
-          if ((ground === this.ground || ground === Block.Sand) &&
+          const okGround = this.dim === 'valley' ? ground === this.ground || ground === Block.Sand : BLOCKS[ground].solid;
+          if (okGround &&
               isReplaceable(this.get(px, y + 1, pz)) && this.get(px, y + 1, pz) === Block.Air &&
               this.get(px, y + 2, pz) === Block.Air) {
             return [px + 0.5, y + 1, pz + 0.5];
@@ -104,8 +109,37 @@ export class World {
     return [x + 0.5, HEIGHT - 4, z + 0.5];
   }
 
+  /** Hand-placed structures (gates, the station), bucketed by chunk. */
+  private structuresIn(cx: number, cz: number): Placed[] {
+    if (!this.structures) {
+      this.structures = new Map();
+      const all = this.dim === 'future' ? futureStructures() : this.dim === 'space' ? spaceStructures() : valleyStructures(this);
+      for (const p of all) {
+        const key = chunkKey(toChunk(p[0]), toChunk(p[2]));
+        const list = this.structures.get(key) ?? [];
+        list.push(p);
+        this.structures.set(key, list);
+      }
+    }
+    return this.structures.get(chunkKey(cx, cz)) ?? [];
+  }
+
   private generate(cx: number, cz: number): Chunk {
     const c = new Chunk(cx, cz);
+    if (this.dim === 'future') generateFuture(this, c);
+    else if (this.dim === 'space') generateSpace(this, c);
+    else this.generateValley(c);
+    for (const [x, y, z, b] of this.structuresIn(cx, cz)) c.set(mod(x, CHUNK), y, mod(z, CHUNK), b);
+    // Re-apply player edits for this chunk.
+    for (const [key, b] of this.edits) {
+      const [x, y, z] = key.split(',').map(Number);
+      if (toChunk(x) === cx && toChunk(z) === cz) c.set(mod(x, CHUNK), y, mod(z, CHUNK), b);
+    }
+    return c;
+  }
+
+  private generateValley(c: Chunk) {
+    const { cx, cz } = c;
     for (let lx = 0; lx < CHUNK; lx++) {
       for (let lz = 0; lz < CHUNK; lz++) {
         const wx = cx * CHUNK + lx, wz = cz * CHUNK + lz;
@@ -125,12 +159,6 @@ export class World {
       }
     }
     this.plantTrees(c);
-    // Re-apply player edits for this chunk.
-    for (const [key, b] of this.edits) {
-      const [x, y, z] = key.split(',').map(Number);
-      if (toChunk(x) === cx && toChunk(z) === cz) c.set(mod(x, CHUNK), y, mod(z, CHUNK), b);
-    }
-    return c;
   }
 
   private leafFor(r: number): Block {

@@ -143,6 +143,75 @@ def main():
         b[i] = b[i] * w + b[len(b) - fade + i] * (1 - w)
     save('music.wav', b[: len(b) - fade], peak=0.5)
 
+    b = blank(1.6)  # gate: a rising shimmer that swells and fades
+    for k, n in enumerate((60, 67, 72, 76, 79, 84)):
+        tone(b, k * 0.07, 1.4 - k * 0.07, midi(n), vol=0.12, freq_end=midi(n + 12), attack=0.3, release=0.6)
+    noise(b, 0, 1.5, vol=0.25, smooth=0.95, sweep=0.6, attack=0.4, release=0.8, seed=31)
+    save('portal.wav', b, peak=0.6)
+
+    b = blank(0.35)  # thruster puff in space
+    noise(b, 0, 0.35, vol=0.5, smooth=0.9, sweep=0.97, attack=0.05, release=0.2, seed=41)
+    save('thrust.wav', b, peak=0.35)
+
+    save('future.wav', future_music(), peak=0.5)
+    save('space.wav', space_music(), peak=0.55)
+
+
+def loop_crossfade(b, seconds=0.6):
+    fade = int(seconds * RATE)
+    for i in range(fade):
+        w = i / fade
+        b[i] = b[i] * w + b[len(b) - fade + i] * (1 - w)
+    return b[: len(b) - fade]
+
+
+def future_music():
+    """City at night: a driving 16th-note arpeggio over warm pads and a soft pulse (original)."""
+    bpm = 100
+    beat = 60 / bpm
+    bars = 16
+    b = blank(bars * 4 * beat + 0.6)
+    prog = [(57, [57, 60, 64, 67]), (53, [53, 57, 60, 64]), (55, [55, 59, 62, 67]), (52, [52, 55, 59, 62])]
+    for bar in range(bars):
+        root, notes = prog[(bar // 2) % 4]
+        t0 = bar * 4 * beat
+        for n in notes:
+            tone(b, t0, 4 * beat, midi(n), vol=0.035, attack=0.5, release=0.6)
+        for q in range(4):
+            tone(b, t0 + q * beat, beat * 0.9, midi(root - 24), vol=0.12, decay=0.25, release=0.05)
+        for i in range(16):
+            n = notes[i % 4] + (12 if (i // 4) % 2 else 0)
+            tone(b, t0 + i * beat / 4, beat / 4 * 0.9, midi(n + 12), vol=0.05, decay=0.08, kind='tri', release=0.02)
+    return loop_crossfade(b)
+
+
+def organ(buf, start, length, freq, vol):
+    """A breathy, organ-like tone: a few harmonics with a very slow swell."""
+    for mult, amp in ((1, 1.0), (2, 0.5), (3, 0.22), (4, 0.18), (6, 0.06)):
+        tone(buf, start, length, freq * mult, vol=vol * amp, attack=length * 0.45, release=length * 0.45)
+
+
+def space_music():
+    """Vast and slow: swelling organ chords, a deep sub drone, and sparse high bells (original)."""
+    chord_len = 8.0
+    chords = [(45, 52, 57, 59, 64), (41, 48, 57, 60, 67), (38, 50, 57, 62, 65), (40, 52, 56, 59, 64),
+              (45, 52, 60, 64, 71), (43, 50, 59, 62, 69), (41, 53, 57, 60, 65), (40, 47, 56, 59, 64)]
+    b = blank(len(chords) * chord_len + 2.0)
+    for i, ch in enumerate(chords):
+        t0 = i * chord_len
+        for n in ch:
+            organ(b, t0, chord_len + 1.6, midi(n), 0.035)
+        tone(b, t0, chord_len + 1.6, midi(ch[0] - 12), vol=0.12, attack=3.0, release=3.0)
+    rng = random.Random(7)
+    t = 1.0
+    while t < len(chords) * chord_len - 2:
+        ch = chords[int(t // chord_len)]
+        n = rng.choice(ch[2:]) + 24
+        tone(b, t, 3.0, midi(n), vol=0.05, decay=1.0, release=1.5)
+        tone(b, t + 0.37, 3.0, midi(n), vol=0.02, decay=1.0, release=1.5)  # a soft echo
+        t += rng.choice((1.5, 2.25, 3.0, 4.5))
+    return loop_crossfade(b, 1.5)
+
 
 if __name__ == '__main__':
     main()

@@ -18,7 +18,8 @@ export class Bot {
   private heading = 0;
   private stuck = 0;
 
-  constructor(readonly id: string, readonly name: string, readonly color: number, x: number, y: number, z: number, private rand: () => number) {
+  constructor(readonly id: string, readonly name: string, readonly color: number, x: number, y: number, z: number,
+    private rand: () => number, readonly robot = false) {
     this.body = { x, y, z, vy: 0, onGround: false };
   }
 
@@ -68,7 +69,8 @@ export class Bot {
 
   private pickMode(toPlayer: number) {
     const r = this.rand();
-    if (toPlayer > 10 || r < 0.35) {
+    // Robot citizens mostly go about their business; friends stick closer.
+    if (toPlayer > 10 || r < (this.robot ? 0.12 : 0.35)) {
       this.mode = 'follow';
       this.timer = 3 + this.rand() * 4;
     } else if (r < 0.75) {
@@ -89,5 +91,18 @@ export function spawnBots(world: World, near: { x: number; z: number }, count = 
   return NAMES.slice(0, count).map((name, i) => {
     const [x, y, z] = world.findSpawn(Math.floor(near.x) + 2 + i * 2, Math.floor(near.z) + 2);
     return new Bot(`bot-${i}`, name, COLORS[i], x, y, z, rand);
+  });
+}
+
+const ROBOT_COLORS = [0x5ff2ff, 0xff6f91, 0xffd166, 0x7cf29c, 0xa47bff];
+
+/** Humanoid robot citizens for the future city, scattered along the streets around you. */
+export function spawnRobots(world: World, near: { x: number; z: number }, count = 10): Bot[] {
+  let s = (world.seed ^ 0x51ed270b) >>> 0;
+  const rand = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+  return Array.from({ length: count }, (_, i) => {
+    const a = (i / count) * Math.PI * 2;
+    const [x, y, z] = world.findSpawn(Math.floor(near.x + Math.cos(a) * 9), Math.floor(near.z + 6 + Math.sin(a) * 9));
+    return new Bot(`robot-${i}`, `R-${String(i + 1).padStart(2, '0')}`, ROBOT_COLORS[i % ROBOT_COLORS.length], x, y, z, rand, true);
   });
 }
