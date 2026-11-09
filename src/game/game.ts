@@ -5,7 +5,7 @@ import { Hit, raycast } from './raycast';
 import { Save } from './storage';
 import { HEIGHT, toChunk, World } from './world';
 
-export const REACH = 6;
+export const REACH = 8;
 const WALK = 4.6;
 const GRAVITY = -24;
 const JUMP_SPEED = 8.2;
@@ -203,8 +203,16 @@ export class Game {
     const mz = (-input.moveX * sin - input.moveY * cos) * speed * dt;
 
     const fallSpeed = -this.body.vy;
-    if (swim) {
-      this.body.vy = input.jump ? 3.2 : Math.max(this.body.vy + GRAVITY * 0.15 * dt, -1.6);
+    // Bobbing at the surface: head above water, feet still in it.
+    const wading = !swim && this.world.get(Math.floor(this.body.x), Math.floor(this.body.y + 0.1), Math.floor(this.body.z)) === Block.Water;
+    if (swim && this.body.vy > 4.5) {
+      this.body.vy += GRAVITY * dt; // mid-hop out of the water: let the hop carry
+    } else if (swim) {
+      this.body.vy = input.jump ? 4.2 : Math.max(this.body.vy + GRAVITY * 0.15 * dt, -1.6);
+    } else if (wading && input.jump && this.body.vy <= 0.5) {
+      // Kick up out of the water (from the surface you can't stand on anything).
+      this.body.vy = JUMP_SPEED * 0.9;
+      this.onSound('jump');
     } else {
       if (this.body.onGround && input.jump) {
         this.body.vy = JUMP_SPEED;
@@ -215,17 +223,22 @@ export class Game {
     const bx = this.body.x, bz = this.body.z;
     const wasOnGround = this.body.onGround;
     move(this.world, this.body, mx, this.body.vy * dt, mz);
-    // Auto-jump: walking into a one-block step (with headroom above it) hops onto it.
-    const want = Math.hypot(mx, mz);
-    if (this.autoJump && !swim && wasOnGround && want > 0.02) {
-      const got = Math.hypot(this.body.x - bx, this.body.z - bz);
-      if (got < want * 0.5) {
-        const ax = this.body.x + (mx / want) * 0.5, az = this.body.z + (mz / want) * 0.5;
-        const fy = Math.floor(this.body.y);
-        const step = this.world.isSolid(Math.floor(ax), fy, Math.floor(az));
-        const clear = !collides(this.world, this.body.x, this.body.y + 1.05, this.body.z) &&
-          !this.world.isSolid(Math.floor(ax), fy + 1, Math.floor(az)) && !this.world.isSolid(Math.floor(ax), fy + 2, Math.floor(az));
-        if (step && clear) this.body.vy = JUMP_SPEED;
+    // Auto-jump / climb out: if either axis of the move was stopped by a one-block step with
+    // headroom above it, hop onto it. Works on land and from the water onto the shore.
+    const inWaterNow = swim || wading;
+    const canHop = (wasOnGround || inWaterNow) && this.body.vy <= 1;
+    if ((this.autoJump || (inWaterNow && input.jump)) && canHop) {
+      const fy = Math.floor(this.body.y + (inWaterNow ? 0.3 : 0));
+      const hopAxis = (dx: number, dz: number) => {
+        const ax = this.body.x + dx * (PLAYER_HALF + 0.25), az = this.body.z + dz * (PLAYER_HALF + 0.25);
+        return this.world.isSolid(Math.floor(ax), fy, Math.floor(az)) &&
+          !this.world.isSolid(Math.floor(ax), fy + 1, Math.floor(az)) && !this.world.isSolid(Math.floor(ax), fy + 2, Math.floor(az)) &&
+          !collides(this.world, this.body.x, fy + 1.05, this.body.z);
+      };
+      const blockedX = Math.abs(mx) > 0.003 && Math.abs(this.body.x - bx) < Math.abs(mx) * 0.5;
+      const blockedZ = Math.abs(mz) > 0.003 && Math.abs(this.body.z - bz) < Math.abs(mz) * 0.5;
+      if ((blockedX && hopAxis(Math.sign(mx), 0)) || (blockedZ && hopAxis(0, Math.sign(mz)))) {
+        this.body.vy = inWaterNow ? JUMP_SPEED * 0.95 : JUMP_SPEED;
       }
     }
     if (this.body.onGround && !swim) {

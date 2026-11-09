@@ -123,15 +123,15 @@ export function HoldButton({ label, color, onChange, style }: {
 }
 
 const styles = StyleSheet.create({
-  stickZone: { position: 'absolute', left: 0, bottom: 0, width: '38%', height: '72%' },
+  stickZone: { position: 'absolute', left: 0, bottom: 0, width: '27%', height: '52%' }, // bottom-left corner only
   stick: {
     position: 'absolute', width: STICK, height: STICK, borderRadius: STICK / 2,
     backgroundColor: 'rgba(20,30,40,0.25)', alignItems: 'center', justifyContent: 'center',
   },
   stickIdle: { left: 36, bottom: 30, opacity: 0.55 },
   // The look stick sits above the jump button on the right.
-  stickZoneRight: { position: 'absolute', right: 0, bottom: 128, width: '34%', height: '48%' },
-  stickIdleRight: { right: 40, bottom: 20, opacity: 0.45 },
+  stickZoneRight: { position: 'absolute', right: 0, bottom: 122, width: '22%', height: '36%' }, // just above the jump button
+  stickIdleRight: { right: 30, bottom: 6, opacity: 0.45 },
   knob: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.75)' },
   button: {
     position: 'absolute', width: 74, height: 74, borderRadius: 37, alignItems: 'center', justifyContent: 'center',

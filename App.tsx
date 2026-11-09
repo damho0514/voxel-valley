@@ -547,6 +547,32 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
         </Pressable>
       </View>
 
+      <Joystick onMove={(x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
+      {lookMode === 'stick' && !settingsOpen && <Joystick side="right" onMove={(x, y) => { lookStick.current = { x, y }; }} />}
+      {dim === 'space' ? (
+        <>
+          <HoldButton label="▲" color="#6b5fd6" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
+          <HoldButton label="▼" color="#3d3f73" style={{ right: 26, bottom: 132 }} onChange={(h) => { inputRef.current.down = h; }} />
+        </>
+      ) : (
+        <HoldButton label="점프" color="#56657a" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
+      )}
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hotbar} contentContainerStyle={styles.hotbarInner}>
+        {palette.map((b, i) => (
+          <Pressable key={b} testID={`slot-${i}`} onPress={() => select(i)}
+            style={[styles.slot, hud?.selected === i && styles.slotSelected]}>
+            <View style={[styles.swatch, { backgroundColor: hex(BLOCKS[b].top) }, BLOCKS[b].glass && styles.swatchGlass]} />
+          </Pressable>
+        ))}
+      </ScrollView>
+      {hud && palette.length > 0 && (
+        <Text pointerEvents="none" style={styles.selectedName}>{`${BLOCKS[palette[hud.selected]].name} · 무제한`}</Text>
+      )}
+
+      {hint && !loading && <Text pointerEvents="none" style={styles.hint}>{hint}</Text>}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: dim === 'space' ? '#1a1240' : '#e8fbff', opacity: flash }]} />
+
       {settingsOpen && (
         <View style={styles.settings}>
           <Text style={styles.settingsTitle}>시점 조작</Text>
@@ -579,32 +605,6 @@ function Play({ mode, profile, onProfile, onExit }: { mode: Mode; profile: Profi
           </View>
         </View>
       )}
-
-      <Joystick onMove={(x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
-      {lookMode === 'stick' && <Joystick side="right" onMove={(x, y) => { lookStick.current = { x, y }; }} />}
-      {dim === 'space' ? (
-        <>
-          <HoldButton label="▲" color="#6b5fd6" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
-          <HoldButton label="▼" color="#3d3f73" style={{ right: 26, bottom: 132 }} onChange={(h) => { inputRef.current.down = h; }} />
-        </>
-      ) : (
-        <HoldButton label="점프" color="#56657a" style={styles.bigButton} onChange={(h) => { inputRef.current.jump = h; }} />
-      )}
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hotbar} contentContainerStyle={styles.hotbarInner}>
-        {palette.map((b, i) => (
-          <Pressable key={b} testID={`slot-${i}`} onPress={() => select(i)}
-            style={[styles.slot, hud?.selected === i && styles.slotSelected]}>
-            <View style={[styles.swatch, { backgroundColor: hex(BLOCKS[b].top) }, BLOCKS[b].glass && styles.swatchGlass]} />
-          </Pressable>
-        ))}
-      </ScrollView>
-      {hud && palette.length > 0 && (
-        <Text pointerEvents="none" style={styles.selectedName}>{`${BLOCKS[palette[hud.selected]].name} · 무제한`}</Text>
-      )}
-
-      {hint && !loading && <Text pointerEvents="none" style={styles.hint}>{hint}</Text>}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: dim === 'space' ? '#1a1240' : '#e8fbff', opacity: flash }]} />
 
       {loading && (
         <View style={styles.loading}>
