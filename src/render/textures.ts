@@ -119,14 +119,18 @@ const P: Record<string, Painter> = {
   window: (x, y) => windowTile(x, y, hex(0x7fa8c9), false),
   window_lit: (x, y) => windowTile(x, y, hex(0xffd98a), true),
   gateframe: (x, y) => {
-    const rune = (Math.abs(x - 16) < 2 && y > 8 && y < 24) || (Math.abs(y - 16) < 2 && x > 10 && x < 22);
-    return rune ? hex(0xb8a8ff) : (grain(0x6d6a8a, 0.25, 35)(x, y) as RGB);
+    // Pale moonstone with a gold inlay border and a small gold diamond: a bright, ornate arch.
+    const edge = Math.min(x, y, 31 - x, 31 - y);
+    if (edge === 2) return hex(0xe2b85c);
+    if (Math.abs(x - 15.5) + Math.abs(y - 15.5) < 5) return mix(hex(0xf6d488), hex(0xe2b85c), (Math.abs(x - 15.5) + Math.abs(y - 15.5)) / 5);
+    return grain(0xece6da, 0.12, 35)(x, y) as RGB;
   },
   portal: (x, y) => {
-    const a = Math.atan2(y - 15.5, x - 15.5), r = Math.hypot(x - 15.5, y - 15.5);
-    const swirl = 0.5 + 0.5 * Math.sin(a * 3 + r * 0.6);
-    const c = 200 + swirl * 55;
-    return [c, c, c, 170 + swirl * 60];
+    // A curtain of light: soft vertical ribbons that ripple sideways, with a few sparkles.
+    const ribbon = 0.5 + 0.5 * Math.sin(x * 0.59 + Math.sin(y * 0.39) * 1.6);
+    const sparkle = hash(x, y, 77) > 0.975 ? 1 : 0;
+    const c = Math.min(255, 205 + ribbon * 45 + sparkle * 40);
+    return [c, c, c, Math.min(255, 150 + ribbon * 70 + sparkle * 60)];
   },
   asteroid: (x, y) => {
     const crater = vnoise(x, y, 8, 36);
@@ -252,7 +256,7 @@ export function tileOf(b: Block, face: number): number {
 
 /** Tiles that get their colour from the texture alone (portals are tinted per block instead). */
 export const PORTAL_TINT: Partial<Record<Block, number>> = {
-  [Block.PortalFuture]: 0x4fe3ff, [Block.PortalSpace]: 0xa47bff, [Block.PortalHome]: 0x8ff0a4,
+  [Block.PortalFuture]: 0x4fe3ff, [Block.PortalSpace]: 0xffc86b, [Block.PortalHome]: 0x8ff0a4,
 };
 
 let atlas: THREE.DataTexture | null = null;

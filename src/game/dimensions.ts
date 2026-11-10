@@ -17,16 +17,20 @@ export const BLACK_HOLE = { x: 0, y: 44, z: 175, horizon: 16, reach: 130 };
 const mod = (a: number, b: number) => ((a % b) + b) % b;
 
 /**
- * A gate: a 4×6 frame with a 2×4 portal, facing ±z, centred on x = cx (portal spans cx-1..cx).
+ * A gate: an arch 4 wide and 7 tall — two pillars, a rounded top with the corners cut away — around a
+ * 2×5 portal, facing ±z, centred on x = cx (portal spans cx-1..cx).
  * `y0` is the floor the gate stands in: its bottom bar is flush with it, so you can walk straight in.
  */
 function gate(cx: number, y0: number, z: number, portal: Block): Placed[] {
   const out: Placed[] = [];
-  for (let x = cx - 2; x <= cx + 1; x++)
-    for (let y = y0; y <= y0 + 5; y++) {
-      const inside = x >= cx - 1 && x <= cx && y >= y0 + 1 && y <= y0 + 4;
+  for (let x = cx - 2; x <= cx + 1; x++) {
+    const pillar = x === cx - 2 || x === cx + 1;
+    for (let y = y0; y <= y0 + 6; y++) {
+      if (pillar && y === y0 + 6) continue; // the arch's rounded shoulders
+      const inside = !pillar && y >= y0 + 1 && y <= y0 + 5;
       out.push([x, y, z, inside ? portal : Block.GateFrame]);
     }
+  }
   return out;
 }
 
