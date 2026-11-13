@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voxel Valley · Expo Go로 열기</title>
+<meta property="og:title" content="Voxel Valley — Expo Go로 바로 실행">
+<meta property="og:description" content="Expo Go(무료)를 설치하고 누르면 게임이 열려요 · 아이폰 · 안드로이드">
+<meta property="og:image" content="https://damho0514.github.io/voxel-valley/app/og.jpg">
+<style>
+  :root { --bg:#13202b; --card:#1d2f3d; --ink:#f4f8fb; --muted:#a9bccb; --gold:#ffd166; --line:rgba(255,255,255,.1); }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",Roboto,sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:28px 16px 48px; }
+  h1 { font-size:26px; margin:0 0 6px; }
+  p { color:var(--muted); margin:0 0 16px; }
+  .btn { display:block; text-align:center; padding:16px; border-radius:14px; font-weight:800; font-size:18px; text-decoration:none; margin:12px 0; }
+  .open { background:var(--gold); color:#2a1b00; }
+  .store { background:var(--card); color:var(--ink); border:1px solid var(--line); font-size:15px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 18px; margin:16px 0; }
+  ol { margin:0; padding-left:20px; } li { margin:4px 0; }
+  .kakao { display:none; background:#fee500; color:#191600; border-radius:12px; padding:12px 14px; font-weight:700; margin-bottom:14px; }
+</style>
+<script>
+  // Expo Go opens exp:// links. KakaoTalk's in-app browser blocks them, so hand the page to the
+  // phone's real browser first; elsewhere, try to open Expo Go right away.
+  var EXP = 'exp://u.expo.dev/d94cf81c-bee3-49d1-90c0-20a606d1bb8b?channel-name=production&runtime-version=exposdk%3A58.0.0';
+  (function () {
+    var ua = navigator.userAgent || '';
+    if (/KAKAOTALK/i.test(ua)) { location.replace('kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href)); return; }
+    if (/iPhone|iPad|iPod|Android/i.test(ua)) setTimeout(function () { location.href = EXP; }, 400);
+  })();
+</script>
+</head>
+<body>
+<main>
+  <div class="kakao" id="kakao">카카오톡에서는 열리지 않아요. 오른쪽 위(아래) ⋯ → <b>다른 브라우저로 열기 / Safari로 열기</b>를 눌러 주세요.</div>
+  <h1>🎮 Voxel Valley · Expo Go</h1>
+  <p>무료 앱 <b>Expo Go</b> 안에서 게임이 바로 열려요. 아이폰 · 안드로이드 모두 돼요.</p>
+  <a class="btn open" id="open" href="#">▶ Expo Go로 게임 열기</a>
+  <div class="card">
+    <ol>
+      <li>Expo Go가 없다면 먼저 설치해요 (무료):<br>
+        <a class="btn store" href="https://apps.apple.com/app/expo-go/id982107779">🍎 App Store에서 Expo Go 받기</a>
+        <a class="btn store" href="https://play.google.com/store/apps/details?id=host.exp.exponent">🤖 Google Play에서 Expo Go 받기</a></li>
+      <li>이 페이지로 돌아와 <b>▶ Expo Go로 게임 열기</b>를 눌러요.</li>
+      <li>처음엔 내려받느라 몇 초 걸려요. 휴대폰은 가로로 들어 주세요.</li>
+    </ol>
+  </div>
+  <p style="font-size:13px">컴퓨터 화면에서 보고 있다면 <a href="../app/" style="color:var(--gold)">안내 페이지</a>의 QR 코드를 휴대폰 카메라로 찍어도 돼요.</p>
+</main>
+<script>
+  document.getElementById('open').href = EXP;
+  if (/KAKAOTALK/i.test(navigator.userAgent)) document.getElementById('kakao').style.display = 'block';
+</script>
+</body>
+</html>
