@@ -1,21 +1,53 @@
-The MIT License (MIT)
+Voxel Valley — 독점 소프트웨어 라이선스 (Proprietary License)
+Copyright (c) 2026 damho0514. All rights reserved.
 
-Copyright (c) 2026 damho0514
+[한국어 — 우선 적용]
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. 권리 귀속
+   이 저장소와 앱에 포함된 소스 코드, 컴파일된 앱(APK·IPA·웹 빌드), 그래픽·아이콘·사운드·
+   텍스트·UI 디자인, 게임 규칙과 데이터, 서버 코드 및 프로토콜(이하 "본 저작물")에 대한
+   저작권과 그 밖의 모든 지식재산권은 damho0514(이하 "저작권자")에게 있습니다.
+   이 라이선스는 어떠한 권리도 양도하지 않습니다.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. 허용되는 사용
+   저작권자가 직접 배포한 공식 앱을 본인 기기에 설치하여 개인적·비상업적으로 사용하는 것만
+   허용됩니다. 저장소 열람이 가능하더라도 열람 이외의 권리는 부여되지 않습니다.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. 금지 행위 (저작권자의 사전 서면 동의가 없는 경우)
+   가. 본 저작물의 전부 또는 일부를 복제, 수정, 번역, 2차적저작물 작성, 배포, 공중송신,
+       판매, 대여, 재라이선스하는 행위
+   나. 앱을 역설계·디컴파일·디스어셈블하거나, 번들·리소스를 추출하거나, 난독화·보안 장치를
+       우회·제거하는 행위
+   다. 본 저작물의 코드·디자인·게임 규칙·화면 구성을 모방하여 실질적으로 유사한 제품을
+       만들거나 배포하는 행위
+   라. 공식 앱이 아닌 클라이언트, 봇, 매크로, 스크립트로 저작권자의 서버에 접속하거나,
+       서버에 과도한 부하를 주거나, 다른 이용자의 데이터를 변조하는 행위
+   마. 본 저작물을 인공지능·머신러닝 모델의 학습, 미세조정, 평가 데이터로 사용하는 행위
+   바. 본 고지, 저작권 표시, 출처 표시를 삭제하거나 변경하는 행위
+
+4. 제3자 구성요소
+   본 저작물에 포함되거나 연결된 오픈소스 라이브러리와 외부 콘텐츠는 각자의 라이선스를
+   따르며, 이 라이선스는 그 권리를 제한하거나 확대하지 않습니다.
+
+5. 종료
+   이 라이선스를 위반하면 사용 권한은 통지 없이 즉시 종료되며, 저작권자는 저작권법 등
+   관계 법령에 따른 민·형사상 조치를 취할 수 있습니다.
+
+6. 보증 부인 및 책임 제한
+   본 저작물은 "있는 그대로" 제공되며, 법이 허용하는 최대 범위에서 저작권자는 어떠한
+   보증도 하지 않고 사용으로 인한 손해에 책임지지 않습니다.
+
+7. 준거법 및 관할
+   이 라이선스는 대한민국 법률에 따르며, 분쟁은 서울중앙지방법원을 제1심 전속관할로 합니다.
+
+문의 및 사용 허가 요청: https://github.com/damho0514
+
+[English — summary; the Korean text prevails]
+
+All rights reserved. No licence is granted to copy, modify, distribute, sublicense,
+sell, reverse engineer, decompile, extract assets from, imitate, or use this work
+(including for AI/ML training) without the copyright holder's prior written consent.
+Only personal, non-commercial use of the official app as distributed by the copyright
+holder is permitted. Unofficial clients, bots, or scripts must not access the
+copyright holder's servers. Third-party components keep their own licences.
+Governed by the laws of the Republic of Korea.

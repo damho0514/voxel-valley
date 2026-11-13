@@ -53,4 +53,4 @@ PLAYWRIGHT=<playwright 패키지 경로> node tools/gen_icons.mjs
 
 앱에 들어가는 주요 라이브러리는 모두 MIT 라이선스예요. three.js, React, React Native, Expo 모듈, react-native-gesture-handler, AsyncStorage가 여기에 해당해요. 스토어에 배포할 때는 각 라이브러리의 저작권 고지를 앱 안이나 함께 배포하는 문서에 넣어야 해요.
 
-이 프로젝트의 코드는 MIT 라이선스예요. 자세한 내용은 `LICENSE`를 보세요.
+이 프로젝트의 코드·디자인·사운드·게임 규칙은 모두 저작권자(damho0514)의 소유이며 무단 복제·수정·배포·모방·역설계를 금지해요 (All rights reserved). 자세한 내용은 `LICENSE`를 보세요.

@@ -1,7 +1,34 @@
 import { DurableObject } from 'cloudflare:workers';
-import { DIM_PREFIX, isRoomCode, MAX_PLAYERS, parseClientMsg, PlayerInfo, SeasonName, ServerMsg } from './protocol';
+import { DIM_PREFIX, isRoomCode, MAX_PLAYERS, MAX_ROOM_EDITS, parseClientMsg, PlayerInfo, SeasonName, ServerMsg } from './protocol';
 
-type Env = { ROOMS: DurableObjectNamespace<Room> };
+type Env = { ROOMS: DurableObjectNamespace<Room>; CONNECT_LIMITER?: RateLimit };
+
+/**
+ * Browser pages allowed to open a room socket. The native apps send no Origin header, so they
+ * pass; this stops other websites from embedding our server in their own pages.
+ */
+const ALLOWED_ORIGINS = [/^https:\/\/damho0514\.github\.io$/, /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/];
+const originAllowed = (o: string | null) => o === null || ALLOWED_ORIGINS.some((re) => re.test(o));
+
+/** Token bucket: `burst` messages at once, refilled at `perSec`. */
+class Bucket {
+  private tokens: number;
+  private at = Date.now();
+  constructor(private burst: number, private perSec: number) {
+    this.tokens = burst;
+  }
+  take(): boolean {
+    const now = Date.now();
+    this.tokens = Math.min(this.burst, this.tokens + ((now - this.at) / 1000) * this.perSec);
+    this.at = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
+  }
+}
+type Limits = { pos: Bucket; set: Bucket; other: Bucket; strikes: number };
+/** Rate-limited messages before a socket is dropped as abusive. */
+const MAX_STRIKES = 2_000;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -10,6 +37,11 @@ export default {
     if (match) {
       if (!isRoomCode(match[1])) return new Response('bad room code', { status: 400 });
       if (request.headers.get('Upgrade') !== 'websocket') return new Response('expected websocket', { status: 426 });
+      if (!originAllowed(request.headers.get('Origin'))) return new Response('forbidden', { status: 403 });
+      const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
+      if (env.CONNECT_LIMITER && !(await env.CONNECT_LIMITER.limit({ key: ip })).success) {
+        return new Response('too many connections', { status: 429 });
+      }
       return env.ROOMS.get(env.ROOMS.idFromName(match[1])).fetch(request);
     }
     if (url.pathname === '/') return new Response('Voxel Valley server ok');
@@ -26,6 +58,24 @@ export class Room extends DurableObject<Env> {
   private seed: number | null = null;
   private season: SeasonName = 'summer';
   private edits = new Map<string, number>();
+  /** Per-socket rate limits. In memory only: a hibernation wake simply starts fresh buckets. */
+  private limits = new WeakMap<WebSocket, Limits>();
+
+  /** False when this socket is over its rate for this kind of message; closes repeat offenders. */
+  private allow(ws: WebSocket, kind: 'pos' | 'set' | 'other'): boolean {
+    let l = this.limits.get(ws);
+    if (!l) {
+      l = { pos: new Bucket(40, 20), set: new Bucket(800, 300), other: new Bucket(5, 0.5), strikes: 0 };
+      this.limits.set(ws, l);
+    }
+    if (l[kind].take()) return true;
+    if (++l.strikes > MAX_STRIKES) {
+      try {
+        ws.close(4008, 'rate limit');
+      } catch {}
+    }
+    return false;
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -78,6 +128,7 @@ export class Room extends DurableObject<Env> {
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
     const msg = typeof raw === 'string' ? parseClientMsg(raw) : null;
+    if (!this.allow(ws, msg?.t === 'pos' || msg?.t === 'set' ? msg.t : 'other')) return;
     if (!msg) {
       this.send(ws, { t: 'error', code: 'bad-message', message: '잘못된 메시지' });
       return;
@@ -117,6 +168,7 @@ export class Room extends DurableObject<Env> {
       this.broadcast({ t: 'pos', id: me.id, x: msg.x, y: msg.y, z: msg.z, yaw: msg.yaw, d: msg.d }, ws);
     } else if (msg.t === 'set') {
       const key = `${DIM_PREFIX[msg.d]}${msg.x},${msg.y},${msg.z}`;
+      if (!this.edits.has(key) && this.edits.size >= MAX_ROOM_EDITS) return; // room is full of edits
       this.edits.set(key, msg.b);
       this.broadcast({ t: 'set', x: msg.x, y: msg.y, z: msg.z, b: msg.b, d: msg.d }, ws);
       await this.ctx.storage.put(`e:${key}`, msg.b);

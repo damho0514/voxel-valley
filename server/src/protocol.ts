@@ -9,9 +9,16 @@ export type SeasonName = (typeof SEASON_NAMES)[number];
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 5;
 
-/** 0 = the valley, 1 = the future city, 2 = space. Edit keys for 1 and 2 carry an "f:" / "s:" prefix. */
-export type DimCode = 0 | 1 | 2;
-export const DIM_PREFIX = ['', 'f:', 's:'] as const;
+// Abuse limits. A real client sends ~10 pos/s and short bursts of sets (a cast or dragon blast).
+/** Largest message the server will parse (a 'create' carrying a big saved world). */
+export const MAX_MESSAGE_BYTES = 1_500_000;
+/** Most edits one 'create' may upload, and most distinct edited blocks one room may hold. */
+export const MAX_CREATE_EDITS = 50_000;
+export const MAX_ROOM_EDITS = 200_000;
+
+/** 0 = the valley, 1 = the future city, 2 = space, 3 = the 꿀알바 store street. Edit keys for 1..3 carry an "f:" / "s:" / "k:" prefix. */
+export type DimCode = 0 | 1 | 2 | 3;
+export const DIM_PREFIX = ['', 'f:', 's:', 'k:'] as const;
 
 export type PlayerInfo = { id: string; name: string; color: number; x: number; y: number; z: number; yaw: number; d: DimCode };
 
@@ -37,11 +44,11 @@ const isSeed = (v: unknown): v is number => Number.isInteger(v) && (v as number)
 const isColor =(v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 0xffffff;
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1_000_000;
 export const isBlock = (b: unknown): b is number => Number.isInteger(b) && (b as number) >= 0 && (b as number) < BLOCK_TYPES;
-const dimOf = (v: unknown): DimCode => (v === 1 || v === 2 ? v : 0);
+const dimOf = (v: unknown): DimCode => (v === 1 || v === 2 || v === 3 ? v : 0);
 
 export const isEditKey = (k: unknown): k is string => {
   if (typeof k !== 'string') return false;
-  if (k.startsWith('f:') || k.startsWith('s:')) k = k.slice(2);
+  if (k.startsWith('f:') || k.startsWith('s:') || k.startsWith('k:')) k = k.slice(2);
   const p = (k as string).split(',');
   return p.length === 3 && p.every((n) => /^-?\d{1,6}$/.test(n)) && Number(p[1]) >= 0 && Number(p[1]) < WORLD_HEIGHT;
 };
@@ -53,6 +60,7 @@ export function cleanName(v: unknown): string {
 
 /** Parses and validates one client message; returns null if it's malformed. */
 export function parseClientMsg(raw: string): ClientMsg | null {
+  if (raw.length > MAX_MESSAGE_BYTES) return null;
   let m: Record<string, unknown>;
   try {
     m = JSON.parse(raw);
@@ -62,7 +70,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
   if (!m || typeof m !== 'object') return null;
   switch (m.t) {
     case 'create':
-      if (!isSeed(m.seed) || !Array.isArray(m.edits) || !isColor(m.color)) return null;
+      if (!isSeed(m.seed) || !Array.isArray(m.edits) || m.edits.length > MAX_CREATE_EDITS || !isColor(m.color)) return null;
       if (!m.edits.every((e) => Array.isArray(e) && isEditKey(e[0]) && isBlock(e[1]))) return null;
       if (!SEASON_NAMES.includes(m.season as SeasonName)) return null;
       return { t: 'create', name: cleanName(m.name), color: m.color, seed: m.seed, season: m.season as SeasonName, edits: m.edits as [string, number][] };
