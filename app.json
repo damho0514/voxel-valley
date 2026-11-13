@@ -39,6 +39,12 @@
             "enableShrinkResourcesInReleaseBuilds": false
           }
         }
+      ],
+      [
+        "./plugins/withReleaseSigning",
+        {
+          "name": "voxel-valley"
+        }
       ]
     ]
   }
