@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voxel Valley · 같이 하기 초대</title>
+<meta property="og:title" content="Voxel Valley — 같이 하자! 눌러서 바로 참가">
+<meta property="og:description" content="설치 없이 바로 친구의 월드로 들어가요 · 아이폰 · 안드로이드 · PC">
+<meta property="og:image" content="https://damho0514.github.io/voxel-valley/app/og.jpg">
+<meta name="theme-color" content="#0c1222">
+<style>
+  :root { --bg:#0c1222; --card:#16233a; --ink:#fff6dc; --muted:#b9c6d6; --gold:#f2c35b; --line:rgba(232,194,106,.35); }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",Roboto,sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:34px 18px 40px; text-align:center; }
+  h1 { font-size:26px; margin:6px 0; } .room { color:var(--gold); font-weight:900; letter-spacing:2px; }
+  p { color:var(--muted); margin:6px 0 18px; }
+  .spin { width:46px; height:46px; margin:10px auto 6px; border-radius:50%; border:4px solid rgba(242,195,91,.25); border-top-color:var(--gold); animation:s 0.9s linear infinite; }
+  @keyframes s { to { transform:rotate(360deg); } }
+  .btn { display:block; padding:16px; border-radius:14px; font-weight:900; font-size:18px; text-decoration:none; margin:10px 0; }
+  .go { background:var(--gold); color:#2a1b00; }
+  .alt { background:var(--card); color:var(--ink); border:1px solid var(--line); font-size:15px; }
+  .kakao { display:none; background:#fee500; color:#191600; border-radius:12px; padding:12px; font-weight:800; margin-bottom:14px; }
+  small { color:var(--muted); }
+</style>
+<script>
+  // The invite: ?room=CODE (5 letters/digits). Open that room right away, with nothing to install:
+  //  - KakaoTalk's in-app browser: hand the page to the phone's real browser first;
+  //  - Android: the Voxel Valley app if installed, else the browser game (intent fallback);
+  //  - iPhone, iPad, computers: the browser game.
+  var m = /[?&]room=([A-Za-z0-9]{5})/.exec(location.search) || /#([A-Za-z0-9]{5})$/.exec(location.hash);
+  var CODE = m ? m[1].toUpperCase() : null;
+  var WEB = new URL('../play/' + (CODE ? '?join=' + CODE : ''), location.href).href;
+  var APP = 'voxelvalley://play' + (CODE ? '?join=' + CODE : '');
+  var EXPO = 'exp://u.expo.dev/d94cf81c-bee3-49d1-90c0-20a606d1bb8b?channel-name=production&runtime-version=exposdk%3A58.0.0' + (CODE ? '&join=' + CODE : '');
+  var ua = navigator.userAgent || '';
+  var kakao = /KAKAOTALK/i.test(ua);
+  if (kakao) {
+    location.replace('kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href));
+  } else if (/Android/i.test(ua)) {
+    location.replace('intent://play' + (CODE ? '?join=' + CODE : '') + '#Intent;scheme=voxelvalley;package=com.damho0514.voxelvalley;S.browser_fallback_url=' + encodeURIComponent(WEB) + ';end');
+  } else {
+    setTimeout(function () { location.replace(WEB); }, 250);
+  }
+</script>
+</head>
+<body>
+<main>
+  <div class="kakao" id="kakao">카카오톡 안에서는 게임이 열리지 않아요.<br>오른쪽 아래(위) ⋯ → <b>다른 브라우저로 열기 / Safari로 열기</b></div>
+  <div class="spin"></div>
+  <h1>친구의 월드로 들어가는 중…</h1>
+  <p id="roomline">방 <span class="room" id="code">-----</span> · 같은 서버에서 함께 해요</p>
+  <a class="btn go" id="go" href="../play/">▶ 바로 같이 하기 (설치 없음)</a>
+  <a class="btn alt" id="app" href="#">🤖 안드로이드 앱으로 열기</a>
+  <a class="btn alt" id="expo" href="#">📲 Expo Go로 열기</a>
+  <small>자동으로 넘어가지 않으면 위의 노란 버튼을 눌러 주세요.</small>
+</main>
+<script>
+  document.getElementById('go').href = WEB;
+  document.getElementById('app').href = APP;
+  document.getElementById('expo').href = EXPO;
+  document.getElementById('code').textContent = CODE || '없음';
+  if (!CODE) document.getElementById('roomline').textContent = '초대 코드가 없는 링크예요. 혼자 하기로 열려요.';
+  if (kakao) document.getElementById('kakao').style.display = 'block';
+</script>
+</body>
+</html>

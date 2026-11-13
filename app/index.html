@@ -18,15 +18,7 @@
     var ua = navigator.userAgent || '';
     if (/KAKAOTALK/i.test(ua) && !/[?&]inapp=1/.test(location.search)) {
       location.replace('kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href));
-      return;
     }
-    // Invite link (?join=CODE): everyone lands in the same room on the same server.
-    // iPhone/iPad/PC go straight into the web game; Android gets the app (or the APK) below.
-    var m = /[?&]join=([A-Za-z0-9]{5})(?:&|$)/.exec(location.search);
-    if (!m) return;
-    window.__join = m[1].toUpperCase();
-    var android = /Android/i.test(ua);
-    if (!android) location.replace('../play/?join=' + window.__join);
   })();
 </script>
 <style>
@@ -43,6 +35,8 @@
   .btn small { display:block; font-weight:600; font-size:12px; opacity:.75 }
   .android { background:var(--android) }
   .ios { background:var(--ios); color:#08233a }
+  .expo { background:#ffd166; color:#2a1b00 }
+  .qr { display:flex; gap:16px; align-items:center } .qr img { width:132px; height:132px; border-radius:12px; background:#fff; padding:6px }
   .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px 18px; margin:14px 0 }
   .card h2 { font-size:17px; margin:0 0 8px }
   ol, ul { margin:0; padding-left:20px } li { margin:4px 0 }
@@ -51,24 +45,12 @@
   .shots figcaption { color:var(--muted); font-size:13px; margin-top:4px }
   .note { color:var(--muted); font-size:13px }
   .kakao { display:none; background:#fee500; color:#191600; border-radius:12px; padding:12px 14px; font-weight:700; margin-bottom:14px }
-  .invite { display:none; background:linear-gradient(135deg,#2b4a63,#1d2f3d); border:1px solid rgba(255,209,102,.45); border-radius:18px; padding:18px; margin:0 0 18px }
-  .invite h2 { margin:0 0 4px; font-size:22px } .invite .code { color:var(--accent); letter-spacing:3px }
-  .invite p { margin:0 0 12px; color:var(--muted) } .invite .btns { margin:12px 0 0 }
-  .web { background:var(--accent); color:#2b1d00 }
   @media (min-width:640px) { .shots { grid-template-columns:1fr 1fr } }
 </style>
 </head>
 <body>
 <main>
   <div class="kakao" id="kakao">카카오톡 안에서 열렸어요. 다운로드가 안 되면 오른쪽 위 ⋮ → <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>
-  <section class="invite" id="invite">
-    <h2>🎉 방 <span class="code" id="invcode"></span> 초대</h2>
-    <p id="invmsg">친구가 같이 놀자고 불렀어요. 같은 서버, 같은 방에서 바로 만나요.</p>
-    <div class="btns">
-      <a class="btn android" id="invapp" href="#"><span>🤖 앱으로 참가<small>앱이 없으면 바로 내려받아요 · 설치 후 이 링크를 한 번 더 누르세요</small></span></a>
-      <a class="btn web" id="invweb" href="#"><span>🌐 설치 없이 바로 참가<small>브라우저에서 즉시 플레이</small></span></a>
-    </div>
-  </section>
   <h1>Voxel Valley</h1>
   <p class="sub" id="tagline">그려서 부수고, 마법 양탄자로 달빛 성 위를 나는 복셀 샌드박스</p>
 
@@ -77,7 +59,13 @@
   <div class="btns">
     <a class="btn android" id="apk" href="https://github.com/damho0514/voxel-valley/releases/latest/download/VoxelValley.apk">
       <span>🤖 안드로이드 앱 받기<small id="apkinfo">APK · 바로 설치</small></span></a>
+    <a class="btn expo" href="../go/"><span>📲 아이폰 · 안드로이드: Expo Go로 실행<small>무료 앱 Expo Go 안에서 바로 열려요</small></span></a>
     <a class="btn ios" href="../play/"><span>🍎 아이폰 · PC: 무료로 바로 플레이<small>Safari에서 열고 → 홈 화면에 추가하면 앱처럼</small></span></a>
+  </div>
+
+  <div class="card">
+    <h2>👥 친구와 같이 하기 (링크 한 번)</h2>
+    <p class="note" style="margin:0">게임 안 <b>☰ → 친구 초대</b>를 누르면 지금 월드가 온라인 방으로 열리고 초대 링크가 나와요. 카톡으로 보내면 받은 사람은 <b>누르기만 하면 설치 없이</b> 같은 서버의 같은 월드로 바로 들어와요. 아이폰·컴퓨터는 브라우저에서, 안드로이드는 앱이 있으면 앱으로 열려요.</p>
   </div>
 
   <div class="card" id="features">
@@ -98,6 +86,18 @@
   </div>
 
   <div class="card">
+    <h2>아이폰에서 Expo Go로 실행 (무료 · 추천)</h2>
+    <div class="qr">
+      <img src="expogo-qr.png" alt="Expo Go로 열기 QR 코드">
+      <ol>
+        <li>App Store에서 <b>Expo Go</b>(무료)를 설치해요.</li>
+        <li>위의 <b>Expo Go로 실행</b>을 누르거나, 컴퓨터 화면이라면 이 QR을 아이폰 카메라로 찍어요.</li>
+        <li>Expo Go 안에서 게임이 열려요. 새 버전이 나오면 다음에 열 때 자동으로 바뀌어요.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>아이폰 무료 설치 (홈 화면 앱)</h2>
     <ol>
       <li>위의 <b>아이폰 · PC: 무료로 바로 플레이</b>를 <b>Safari</b>에서 열어요. 카카오톡이면 오른쪽 아래 <b>⋯ → Safari로 열기</b>.</li>
@@ -111,25 +111,6 @@
 </main>
 <script>
   if (/KAKAOTALK/i.test(navigator.userAgent)) document.getElementById('kakao').style.display = 'block';
-  (function () {
-    var code = window.__join;
-    if (!code) return;
-    var apk = 'https://github.com/damho0514/voxel-valley/releases/latest/download/VoxelValley.apk';
-    var web = '../play/?join=' + code;
-    // Opens the installed app straight into the room; without the app Chrome follows the fallback (APK download).
-    var intent = 'intent://open?join=' + code + '#Intent;scheme=voxelvalley;package=com.damho0514.voxelvalley;' +
-      'S.browser_fallback_url=' + encodeURIComponent(apk) + ';end';
-    document.getElementById('invcode').textContent = code;
-    document.getElementById('invweb').href = web;
-    var app = document.getElementById('invapp');
-    if (/Android/i.test(navigator.userAgent)) {
-      app.href = intent;
-      // Straight from the tapped link: open the app (or start the APK download) without another tap.
-      setTimeout(function () { location.href = intent; }, 300);
-    } else app.style.display = 'none';
-    document.getElementById('invite').style.display = 'block';
-    document.title = 'Voxel Valley · 방 ' + code + ' 초대';
-  })();
   // Filled in at publish time from release.json (version, size, features, screenshots).
   fetch('release.json').then(function (r) { return r.json(); }).then(function (d) {
     if (d.tagline) document.getElementById('tagline').textContent = d.tagline;
