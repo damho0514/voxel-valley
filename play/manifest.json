@@ -1,8 +1,6 @@
 {
   "name": "Voxel Valley",
   "short_name": "Voxel Valley",
-  "id": "/voxel-valley/play/",
-  "description": "블록으로 쌓는 나만의 계곡 — 땅굴 파고, 사진으로 집 짓고, 동네 사람들과 이야기해요.",
   "start_url": "/voxel-valley/play/",
   "scope": "/voxel-valley/play/",
   "display": "fullscreen",
@@ -11,19 +9,7 @@
   "theme_color": "#0c1222",
   "lang": "ko",
   "icons": [
-    {
-      "src": "/voxel-valley/play/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/voxel-valley/play/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
-  ],
-  "display_override": [
-    "fullscreen",
-    "standalone"
+    { "src": "/voxel-valley/play/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/voxel-valley/play/icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
