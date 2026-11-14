@@ -86,6 +86,9 @@ def main():
     if sys.argv[1:] == ['eerie']:  # just the 노란 방's small strange sounds
         eerie_sounds()
         return
+    if sys.argv[1:] == ['themes']:  # the lobby (title) and the market (level-up) themes
+        theme_sounds()
+        return
     if sys.argv[1:] == ['places']:  # place music (maze, car park, castle) and the arrival stings
         place_sounds()
         return
@@ -697,6 +700,125 @@ def eerie_sounds():
     noise(b, 0, 2.3, vol=0.25, smooth=0.1, attack=0.3, release=0.6, seed=990)
     wobble(b, 0.8, 0.7, 330, 300, vib=0.05, vib_rate=5.5, vol=0.06, harmonics=((1, 1.0), (2, 0.6), (3, 0.4)), attack=0.1, release=0.2)
     save('eerie_static.wav', loud(b, 0.7), peak=0.7)
+
+
+# ───────────── Themes: the lobby (title screen) and the market (level-ups), both original ─────────────
+
+def bell(buf, t, n, vol=0.08, length=2.4, echo=True):
+    """A soft celesta/bell note with a long ring, and (optionally) two fading echoes."""
+    f = midi(n)
+    for k, (dt, v) in enumerate(((0, 1.0), (0.36, 0.38), (0.72, 0.15)) if echo else ((0, 1.0),)):
+        tone(buf, t + dt, length, f, vol=vol * v, decay=length * 0.32, attack=0.003, release=0.3)
+        tone(buf, t + dt, length * 0.6, f * 2.0, vol=vol * v * 0.3, decay=length * 0.12, attack=0.003, release=0.2)
+        tone(buf, t + dt, length * 0.4, f * 3.01, vol=vol * v * 0.1, decay=length * 0.06, attack=0.002, release=0.1)
+
+
+def pad(buf, t, length, notes, vol=0.035):
+    """A slow, breathing chord: each note doubled and slightly detuned, faded in and out."""
+    for n in notes:
+        f = midi(n)
+        tone(buf, t, length, f, vol=vol, kind='tri', attack=length * 0.35, release=length * 0.4)
+        tone(buf, t, length, f * 1.005, vol=vol * 0.7, attack=length * 0.4, release=length * 0.4)
+
+
+def lobby_music():
+    """The lobby: a little mysterious — D dorian, slow pads, a music-box figure that echoes into
+    the dark, a low drone and a breath of wind. Loops seamlessly."""
+    bar = 4.0
+    chords = [(50, 57, 62, 64, 69), (46, 53, 58, 62, 69), (43, 50, 55, 59, 64), (45, 52, 57, 61, 64)]  # Dm9 · Bbmaj7 · G6 · A
+    total = bar * 8
+    b = blank(total + 2.0)
+    tone(b, 0, total + 2.0, midi(38), vol=0.05, attack=2.0, release=2.0)  # the drone, D
+    noise(b, 0, total + 2.0, vol=0.025, smooth=0.992, attack=2.0, release=2.0, seed=901)
+    for i in range(8):
+        pad(b, i * bar, bar + 1.2, chords[i % 4])
+    # The music-box figure (two phrases, the second answers the first), over bars 2-4 and 6-8.
+    phrase_a = [(0.0, 74), (0.5, 77), (1.0, 81), (1.5, 79), (2.5, 76), (3.0, 74)]
+    phrase_b = [(0.0, 72), (0.5, 76), (1.0, 79), (1.75, 81), (2.25, 83), (3.0, 81)]
+    for start, phrase in ((bar * 1, phrase_a), (bar * 2.5, phrase_b), (bar * 5, phrase_a), (bar * 6.5, [(t, n - 2) for t, n in phrase_b])):
+        for t, n in phrase:
+            bell(b, start + t, n, vol=0.07)
+    # Now and then a single high star-chime, far away.
+    rng = random.Random(902)
+    for t in (3.3, 11.1, 19.6, 27.2):
+        bell(b, t + rng.uniform(-0.2, 0.2), rng.choice((86, 88, 93)), vol=0.035, length=3.0)
+    return loop_crossfade(b, 2.0)
+
+
+def kick(buf, t, vol=0.6):
+    tone(buf, t, 0.28, 120, vol=vol, freq_end=42, decay=0.09, attack=0.001)
+    noise(buf, t, 0.012, vol=vol * 0.4, smooth=0.3, decay=0.004, seed=int(t * 977))
+
+
+def snare(buf, t, vol=0.4):
+    noise(buf, t, 0.2, vol=vol, smooth=0.35, decay=0.06, seed=int(t * 613))
+    tone(buf, t, 0.12, 210, vol=vol * 0.5, freq_end=160, decay=0.04, attack=0.001)
+
+
+def hat(buf, t, vol=0.08):
+    noise(buf, t, 0.04, vol=vol, smooth=0.05, decay=0.012, seed=int(t * 331))
+
+
+def tom(buf, t, f, vol=0.45):
+    tone(buf, t, 0.35, f, vol=vol, freq_end=f * 0.6, decay=0.12, attack=0.002)
+    noise(buf, t, 0.05, vol=vol * 0.25, smooth=0.6, decay=0.02, seed=int(t * 191))
+
+
+BRASS = ((1, 1.0), (2, 0.75), (3, 0.6), (4, 0.45), (5, 0.35), (6, 0.25), (7, 0.18), (8, 0.12))
+
+
+def battle_music():
+    """The market, where you level up: something to fight for — E minor at 150 bpm, a driving
+    sixteenth bass, big brass stabs, war drums, and a heroic lead in the second half (original)."""
+    beat = 60 / 150
+    barlen = beat * 4
+    bars = 16
+    total = barlen * bars
+    b = blank(total + 1.0)
+    roots = [40, 36, 38, 35]  # E · C · D · B  (each two bars)
+    for bar in range(bars):
+        t0 = bar * barlen
+        root = roots[(bar // 2) % 4]
+        # Drums: kick on 1 and 3 plus pushes, snare on 2 and 4, eighth hats; a tom fill every 4 bars.
+        for k in (0, 2, 2.5):
+            kick(b, t0 + k * beat)
+        if bar % 2 == 1:
+            kick(b, t0 + 3.75 * beat, 0.45)
+        for k in (1, 3):
+            snare(b, t0 + k * beat)
+        for k in range(8):
+            hat(b, t0 + k * beat / 2, 0.09 if k % 2 else 0.05)
+        if bar % 4 == 3:
+            for k, f in enumerate((180, 150, 120, 95)):
+                tom(b, t0 + (3 + k * 0.25) * beat, f)
+        # Bass: sixteenths on the root with octave jumps.
+        pattern = (0, 0, 12, 0, 0, 7, 0, 12, 0, 0, 12, 0, 10, 0, 7, 0)
+        for k, iv in enumerate(pattern):
+            wobble(b, t0 + k * beat / 4, beat / 4 * 0.9, midi(root + iv), vol=0.09, harmonics=((1, 1.0), (2, 0.5), (3, 0.3)), attack=0.003, release=0.03, decay=0.08)
+        # Brass stabs: a power chord on 1 and on the "and" of 2.
+        for k in (0, 1.5):
+            for iv in (12, 19, 24):
+                wobble(b, t0 + k * beat, beat * 0.45, midi(root + iv), vol=0.035, harmonics=BRASS, attack=0.01, release=0.08)
+        if bar % 2 == 1:  # a held swell into the next chord
+            for iv in (12, 19, 24):
+                wobble(b, t0 + 2.5 * beat, beat * 1.5, midi(root + iv), vol=0.03, harmonics=BRASS, attack=beat, release=0.05)
+    # The heroic lead over the second half: two four-bar phrases.
+    lead = [
+        (0, 64, 1.5), (1.5, 67, 0.5), (2, 71, 1), (3, 69, 1), (4, 67, 1.5), (5.5, 66, 0.5), (6, 64, 2),
+        (8, 72, 1.5), (9.5, 71, 0.5), (10, 69, 1), (11, 67, 1), (12, 66, 1), (13, 67, 1), (14, 71, 2),
+        (16, 64, 1.5), (17.5, 67, 0.5), (18, 71, 1), (19, 76, 1), (20, 74, 1.5), (21.5, 72, 0.5), (22, 71, 2),
+        (24, 72, 1), (25, 74, 1), (26, 76, 2), (28, 74, 1), (29, 71, 1), (30, 76, 2),
+    ]
+    start = barlen * 8
+    for t, n, d in lead:
+        wobble(b, start + t * beat, d * beat * 0.95, midi(n), vib=0.006, vib_rate=5.5, vol=0.06, harmonics=BRASS, attack=0.02, release=0.08)
+        wobble(b, start + t * beat, d * beat * 0.95, midi(n - 12), vol=0.025, harmonics=BRASS, attack=0.02, release=0.08)
+    return loop_crossfade(b, 0.5)
+
+
+def theme_sounds():
+    save('lobby.wav', loud(lobby_music(), 0.55), peak=0.55)
+    save('battle.wav', loud(battle_music(), 0.6), peak=0.6)
 
 
 def place_sounds():

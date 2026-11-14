@@ -49,6 +49,8 @@ import arriveStoreWav from '../../assets/sounds/arrive_store.wav';
 import arriveMazeWav from '../../assets/sounds/arrive_maze.wav';
 import arriveParkingWav from '../../assets/sounds/arrive_parking.wav';
 import creakWav from '../../assets/sounds/creak.wav';
+import lobbyWav from '../../assets/sounds/lobby.wav';
+import battleWav from '../../assets/sounds/battle.wav';
 import lampoffWav from '../../assets/sounds/lampoff.wav';
 import eerieStepsWav from '../../assets/sounds/eerie_steps.wav';
 import eerieKnockWav from '../../assets/sounds/eerie_knock.wav';
@@ -117,9 +119,12 @@ const FILES = {
 const TRACKS: Record<Track, number> = {
   valley: musicWav, castle: castleWav, future: futureWav, space: spaceWav, store: storeWav,
   maze: mazeWav, parking: parkingWav, parkingUnder: parkingUnderWav,
+  // The title screen (a little mysterious) and the market where you level up (battle).
+  lobby: lobbyWav, battle: battleWav,
 };
 const TRACK_VOLUME: Record<Track, number> = {
   valley: 0.35, castle: 0.45, future: 0.3, space: 0.5, store: 0.45, maze: 0.8, parking: 0.55, parkingUnder: 0.65,
+  lobby: 0.5, battle: 0.42,
 };
 /** The sting for arriving in each dimension. */
 export const ARRIVE: Partial<Record<Dimension, Sfx>> = {
@@ -163,7 +168,7 @@ class Sound {
   private pools = new Map<FileName, { players: AudioPlayer[]; next: number; used: number }>();
   private clock = 0;
   private music: AudioPlayer | null = null;
-  private track: Track = 'valley';
+  private track: Track = 'lobby'; // the app opens on the title screen
   /** The track fading out, and the timer driving the fade. */
   private fading: AudioPlayer | null = null;
   private fadeTimer: ReturnType<typeof setInterval> | null = null;

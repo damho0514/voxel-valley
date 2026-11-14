@@ -191,6 +191,14 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   /** Held upright (phones with rotation lock): HUD rows move so nothing overlaps. */
   const portrait = size.height > size.width;
   const [shopOpen, setShopOpen] = useState(false);
+  /** The market (where you level up) has its own battle theme; places don't take the music back while it's open. */
+  const marketRef = useRef(false);
+  useEffect(() => {
+    marketRef.current = shopOpen;
+    const g = gameRef.current;
+    if (shopOpen) sound.setTrack('battle');
+    else if (g) sound.setTrack(trackAt(g.dim, g.body.x, g.body.y, g.body.z));
+  }, [shopOpen]);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [weaponId, setWeaponId] = useState(progress.get().weapon);
@@ -318,7 +326,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     const timer = setInterval(() => { if (gameRef.current?.dirty) { gameRef.current.dirty = false; save(); } }, 8000);
     return () => {
       alive.current = false;
-      sound.setTrack('valley'); // back on the title screen: the original music, wherever you left off
+      sound.setTrack('lobby'); // back on the title screen: the lobby theme
       sub.remove();
       clearInterval(timer);
       save();
@@ -563,7 +571,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     game.onDimension = (d) => {
       view.setWorld(game.world);
       view.setDimension(d);
-      sound.setTrack(trackAt(d, game.body.x, game.body.y, game.body.z));
+      if (!marketRef.current) sound.setTrack(trackAt(d, game.body.x, game.body.y, game.body.z));
       sound.arrive(d);
       lastLevel = d === 'parking' ? parkingLevelAt(game.body.y) : -1;
       stalker = null;
@@ -829,7 +837,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       // Where you are decides the music: the castle grounds, the car park above or below the street.
       if (now - lastZone > 400) {
         lastZone = now;
-        sound.setTrack(trackAt(game.dim, game.body.x, game.body.y, game.body.z));
+        if (!marketRef.current) sound.setTrack(trackAt(game.dim, game.body.x, game.body.y, game.body.z));
         if (game.dim === 'parking') {
           const lv = parkingLevelAt(game.body.y);
           if (lv !== lastLevel) {
