@@ -1,4 +1,3 @@
-import type { Season } from './game/blocks';
 import type { Species } from './game/bots';
 
 /*
@@ -11,10 +10,10 @@ export type LookMode = 'stick' | 'steer' | 'tilt' | 'drag';
 export type ViewMode = 'first' | 'third';
 export type Profile = { name: string; color: number; sensitivity?: number; autoJump?: boolean; lookMode?: LookMode; view?: ViewMode; pets?: Species[] };
 
-/** solo: offline, saved per season. host: a new shared world. guest: someone else's world. */
+/** solo: offline, saved on this phone. host: a new shared world. guest: someone else's world. */
 export type Mode =
-  | { kind: 'solo'; season: Season; fresh: boolean }
-  | { kind: 'host'; season: Season; code: string; fromSave?: boolean }
+  | { kind: 'solo'; fresh: boolean }
+  | { kind: 'host'; code: string; fromSave?: boolean }
   | { kind: 'guest'; code: string };
 
 export const css = (n: number) => `#${n.toString(16).padStart(6, '0')}`;

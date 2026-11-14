@@ -1,4 +1,5 @@
 import { Block, Dimension } from './blocks';
+import { mazeArrival, parkingArrival } from './darkworlds';
 import { depositAt } from './treasure';
 import type { Chunk, World } from './world';
 import { CHUNK, HEIGHT, SEA_LEVEL } from './world';
@@ -22,24 +23,28 @@ const mod = (a: number, b: number) => ((a % b) + b) % b;
  * 2×5 portal, facing ±z, centred on x = cx (portal spans cx-1..cx).
  * `y0` is the floor the gate stands in: its bottom bar is flush with it, so you can walk straight in.
  */
-function gate(cx: number, y0: number, z: number, portal: Block): Placed[] {
+function gate(cx: number, y0: number, z: number, portal: Block, frame: Block = Block.GateFrame): Placed[] {
   const out: Placed[] = [];
   for (let x = cx - 2; x <= cx + 1; x++) {
     const pillar = x === cx - 2 || x === cx + 1;
     for (let y = y0; y <= y0 + 6; y++) {
       if (pillar && y === y0 + 6) continue; // the arch's rounded shoulders
       const inside = !pillar && y >= y0 + 1 && y <= y0 + 5;
-      out.push([x, y, z, inside ? portal : Block.GateFrame]);
+      out.push([x, y, z, inside ? portal : frame]);
     }
   }
   return out;
 }
 
 /** Where gates stand in the valley, and where you appear when you come back through one. */
-export const VALLEY_GATES = [
-  { cx: -4, z: -8, portal: Block.PortalFuture, to: 'future' as Dimension },
-  { cx: 5, z: -8, portal: Block.PortalSpace, to: 'space' as Dimension },
+export const VALLEY_GATES: { cx: number; z: number; portal: Block; to: Dimension; frame?: Block }[] = [
+  { cx: -4, z: -8, portal: Block.PortalFuture, to: 'future' },
+  { cx: 5, z: -8, portal: Block.PortalSpace, to: 'space' },
+  // The third gate, framed in black lacquer and mother-of-pearl: into the dark worlds. Guides wait in front.
+  { cx: 15, z: -8, portal: Block.PortalDark, to: 'maze', frame: Block.Jagae },
 ];
+/** The dark gate (the guides stand in front of it; see game/guides.ts). */
+export const DARK_GATE = VALLEY_GATES[2];
 
 /**
  * The two gates near the valley spawn, on a small stone pad (lifted above water if needed).
@@ -57,7 +62,13 @@ export function valleyStructures(world: World): Placed[] {
         out.push([x, y0 - 1, z, z > g.z + 1 ? Block.Stone : Block.GateFrame]);
         for (let y = y0; y <= y0 + 8; y++) out.push([x, y, z, Block.Air]);
       }
-    out.push(...gate(g.cx, y0 - 1, g.z, g.portal));
+    out.push(...gate(g.cx, y0 - 1, g.z, g.portal, g.frame));
+    if (g.to === 'maze') {
+      // The way into the dark: candles on black lacquer posts either side of the approach.
+      for (const x of [g.cx - 3, g.cx + 2]) {
+        out.push([x, y0, g.z + 6, Block.Jagae], [x, y0 + 1, g.z + 6, Block.Jagae], [x, y0 + 2, g.z + 6, Block.DimLamp]);
+      }
+    }
   }
   out.push(...castle(world));
   return out;
@@ -191,12 +202,15 @@ export function arrival(world: World, dim: Dimension, from?: Dimension): { pos: 
   if (dim === 'space') return { pos: [0.5, STATION_Y + 1, -5], yaw: Math.PI };
   // On the pavement right in front of the store's door, facing it.
   if (dim === 'store') return { pos: [0.5, STORE_GROUND + 1, 2.5], yaw: 0 };
+  if (dim === 'maze') return mazeArrival(world.seed, from);
+  if (dim === 'parking') return parkingArrival();
   if (from === 'store') {
     // Out of the rift: back up on the grass near where the valley starts.
     const [x, y, z] = world.findSpawn(0, 3);
     return { pos: [x, y, z], yaw: 0 };
   }
-  const g = VALLEY_GATES.find((v) => v.to === from) ?? VALLEY_GATES[0];
+  // Back from the car park you come out at the dark gate too (that's the way you went in).
+  const g = VALLEY_GATES.find((v) => v.to === (from === 'parking' ? 'maze' : from)) ?? VALLEY_GATES[0];
   const x = g.cx - 0.5, z = g.z + 3.5;
   let y = HEIGHT - 2;
   while (y > 0 && !world.isSolid(Math.floor(x), y, Math.floor(z))) y--;

@@ -1,4 +1,4 @@
-import { Block, BLOCKS, Dimension, isReplaceable, paletteFor, PORTAL_TARGET } from './blocks';
+import { Block, BLOCKS, Dimension, DIMENSIONS, isReplaceable, paletteFor, PORTAL_TARGET } from './blocks';
 import { arrival, BLACK_HOLE } from './dimensions';
 import { Body, collides, EYE_HEIGHT, inLava, inWater, move, PLAYER_HALF, PLAYER_HEIGHT } from './physics';
 import { Hit, raycast } from './raycast';
@@ -10,7 +10,6 @@ export const REACH = 8;
 const WALK = 4.6;
 const GRAVITY = -24;
 const JUMP_SPEED = 8.2;
-const DAY_SECONDS = 480;
 /** Magic carpet cruising speed (blocks/s): crosses a view's worth of world in a few seconds. */
 const CARPET_SPEED = 15;
 /** How deep under the valley's natural ground a dug block must be to open the 꿀알바 rift. */
@@ -38,7 +37,14 @@ export type Input = {
   walk?: boolean;
   dig: boolean;
   placeTap: boolean; // consumed once per press
+  /** Keyboard (⌘/Ctrl + Shift held): dig what's under the crosshair, whatever tool is in hand. */
+  keyDig?: boolean;
+  /** Keyboard (Shift pressed): place the selected block, whatever tool is in hand. Once per press. */
+  keyPlace?: boolean;
 };
+
+/** Breaking takes half as long as a block's listed hardness (the user found digging too slow). */
+const DIG_SPEED = 2;
 
 export type SoundName = 'dig' | 'break' | 'place' | 'step' | 'jump' | 'splash' | 'portal' | 'thrust';
 
@@ -58,6 +64,8 @@ export class Game {
   private vel = { x: 0, y: 0, z: 0 };
   private portalCooldown = 0;
   private prevJump = false;
+  /** Double jump: one more jump in mid-air (press jump again), refilled on landing. */
+  private airJumps = 0;
   /** Health: lava burns it away; it slowly comes back. At 0 you respawn. */
   hp = 100;
   maxHp = 100;
@@ -100,7 +108,8 @@ export class Game {
   target: Hit | null = null;
   /** Aim along this direction instead of the crosshair (a finger on a block). */
   aimRay: { x: number; y: number; z: number } | null = null;
-  time = 0.45; // 0 sunrise, 0.25 noon, 0.75 midnight. Starts in the golden hour, night falls soon.
+  /** 0 sunrise, 0.25 noon, 0.75 midnight. The game has one look, a dark night, so the clock stays put. */
+  time = 0.8;
   private digProgress = 0;
   private digKey = '';
   private spawned = false;
@@ -133,10 +142,10 @@ export class Game {
 
   constructor(save: Save | null) {
     const seed = save?.seed ?? Math.floor(Math.random() * 2 ** 31);
-    const valley = new World(seed, save?.season ?? 'summer');
+    const valley = new World(seed);
     this.worlds.set('valley', valley);
     for (const [key, b] of save?.edits ?? []) valley.setEdit(key, b);
-    for (const d of ['future', 'space', 'store'] as Dimension[]) for (const [key, b] of save?.dimEdits?.[d] ?? []) this.worldFor(d).setEdit(key, b);
+    for (const d of DIMENSIONS.slice(1)) for (const [key, b] of save?.dimEdits?.[d] ?? []) this.worldFor(d).setEdit(key, b);
     this.world = this.worldFor(save?.dim ?? 'valley');
     const p = save?.pos ?? this.world.findSpawn(0, 0);
     this.body = { x: p[0], y: p[1], z: p[2], vy: 0, onGround: false };
@@ -148,16 +157,16 @@ export class Game {
   }
 
   get palette(): Block[] {
-    const base = paletteFor(this.world.season, this.world.dim);
+    const base = paletteFor(this.world.dim);
     return [...base, ...this.extraBlocks.filter((b) => !base.includes(b))];
   }
 
-  /** The world for a dimension; same seed and season, created on first use. */
+  /** The world for a dimension; same seed, created on first use. */
   worldFor(dim: Dimension): World {
     let w = this.worlds.get(dim);
     if (!w) {
       const valley = this.worlds.get('valley')!;
-      w = new World(valley.seed, valley.season, dim);
+      w = new World(valley.seed, dim);
       this.worlds.set(dim, w);
     }
     return w;
@@ -230,7 +239,6 @@ export class Game {
   /** Advances the simulation. `ready` = terrain under the player is built. */
   update(dt: number, input: Input, ready: boolean) {
     dt = Math.min(dt, 0.05);
-    this.time = (this.time + dt / DAY_SECONDS) % 1;
 
     const yaw0 = this.yaw;
     this.yaw -= input.lookDX * 0.0055;
@@ -322,12 +330,19 @@ export class Game {
       this.body.vy = JUMP_SPEED * this.jumpMul * 0.9;
       this.onSound('jump');
     } else {
+      if (this.body.onGround) this.airJumps = 1;
       if (this.body.onGround && input.jump) {
         this.body.vy = JUMP_SPEED * this.jumpMul;
         this.onSound('jump');
       } else if (jumpPressed && this.dim === 'future' && !this.body.onGround) {
         // Infinite jump in the future city: every tap in mid-air is another boost upward.
         this.body.vy = JUMP_SPEED;
+        this.onSound('jump');
+        this.onAirJump();
+      } else if (jumpPressed && !this.body.onGround && this.airJumps > 0) {
+        // Double jump: press jump again in mid-air (Space · Enter twice, or ▲ twice on touch).
+        this.airJumps--;
+        this.body.vy = JUMP_SPEED * this.jumpMul * 0.92;
         this.onSound('jump');
         this.onAirJump();
       }
@@ -484,7 +499,7 @@ export class Game {
     }
     const info = BLOCKS[this.world.get(t.x, t.y, t.z)];
     if (!info.breakable) return;
-    this.digProgress += dt / Math.max(0.05, info.hardness);
+    this.digProgress += (dt * DIG_SPEED) / Math.max(0.05, info.hardness);
     this.digSoundAt -= dt;
     if (this.digSoundAt <= 0) {
       this.digSoundAt = 0.22;
@@ -776,10 +791,9 @@ export class Game {
   toSave(): Save {
     return {
       seed: this.world.seed,
-      season: this.world.season,
       edits: [...this.worldFor('valley').edits.entries()],
       dim: this.dim,
-      dimEdits: { future: [...this.worldFor('future').edits.entries()], space: [...this.worldFor('space').edits.entries()], store: [...this.worldFor('store').edits.entries()] },
+      dimEdits: Object.fromEntries(DIMENSIONS.slice(1).map((d) => [d, [...this.worldFor(d).edits.entries()]])),
       pos: [this.body.x, this.body.y, this.body.z],
     };
   }

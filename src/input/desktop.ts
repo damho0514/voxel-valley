@@ -11,17 +11,21 @@ export type DesktopActions = {
   look: (dx: number, dy: number) => void;
   /** AirPods head aiming (head.web.ts): extra turn in radians, + = left / up. */
   turn: (yaw: number, pitch: number) => void;
-  /** WASD / arrows: x = strafe right, y = forward, each -1..1. */
+  /** WASD: x = strafe right, y = forward, each -1..1. (Arrow keys turn the view through `turn`.) */
   move: (x: number, y: number) => void;
   jump: (held: boolean) => void;
-  /** Sink while flying (Shift · Ctrl · C). */
+  /** Sink while flying (Ctrl · C). */
   down: (held: boolean) => void;
-  /** On the ground: Shift walks slowly and silently; Ctrl · C crouch. */
+  /** On the ground: Alt walks slowly and silently; Ctrl · C crouch. */
   stance: (walk: boolean, crouch: boolean) => void;
   /** Left button held / released. */
   primary: (held: boolean) => void;
   /** Right button pressed. */
   secondary: () => void;
+  /** Shift pressed: place the selected block at the crosshair, whatever tool is in hand. */
+  place: () => void;
+  /** ⌘ (Mac) / Ctrl (Windows) + Shift held: break the block at the crosshair, whatever tool is in hand. */
+  dig: (held: boolean) => void;
   /** Mouse wheel: next (1) or previous (-1) hotbar slot. */
   wheel: (dir: 1 | -1) => void;
   /**

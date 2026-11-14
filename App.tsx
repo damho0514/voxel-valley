@@ -5,10 +5,12 @@ import React, { Component, ComponentProps, ReactNode, Suspense, use, useEffect, 
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { sound } from './src/audio/sound';
-import { Season, SEASON_INFO, SEASONS } from './src/game/blocks';
-import { clearSave, savedSeasons } from './src/game/storage';
+import { characterLevel } from './src/game/economy';
+import { progress } from './src/game/progress';
 import { isRoomCode, newRoomCode } from './src/net/room';
+import { Hero } from './src/ui/hero';
 import { Intro } from './src/ui/intro';
+import { InstallButton } from './src/ui/install';
 import { css, Mode, Profile } from './src/session';
 
 /*
@@ -79,21 +81,18 @@ class LoadBoundary extends Component<{ onExit: () => void; children: ReactNode }
 /** Same look as the play screen's own loading cover, so the hand-off is seamless. */
 const PlayLoading = () => (
   <View style={styles.loading}>
-    <Text style={styles.loadingText}>계곡을 만드는 중...</Text>
+    <Text style={styles.loadingText}>입장하는 중...</Text>
   </View>
 );
 
 export default function App() {
   const [mode, setMode] = useState<Mode | null>(null);
-  const [season, setSeason] = useState<Season>('spring');
-  const [saved, setSaved] = useState<Set<Season>>(new Set());
   const [profile, setProfile] = useState<Profile>({ name: '', color: AVATAR_COLORS[0] });
-  const [joinCode, setJoinCode] = useState('');
+  const [level, setLevel] = useState(() => characterLevel(progress.get()));
   const [muted, setMuted] = useState(false);
   // The boot intro plays over the title screen; the title music starts once it's done.
   const [intro, setIntro] = useState(true);
   const endIntro = () => { setIntro(false); sound.startMusic(); };
-  const refreshSaves = () => { savedSeasons().then(setSaved); };
 
   // Once the title screen is up, fetch the game in the background so "start" feels instant.
   useEffect(() => {
@@ -102,9 +101,14 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
+  // The character's level follows the stats bought in the shop (kept across sessions).
+  useEffect(() => {
+    progress.load().then((p) => setLevel(characterLevel(p))).catch(() => {});
+    return progress.subscribe((p) => setLevel(characterLevel(p)));
+  }, []);
+
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-    refreshSaves();
     sound.load().then(() => { setMuted(sound.muted); });
     AsyncStorage.getItem(PROFILE_KEY)
       .then((raw) => {
@@ -115,13 +119,12 @@ export default function App() {
         AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(fresh)).catch(() => {});
       })
       .catch(() => {});
-    // Links: ?join=CODE joins a room; ?autostart=1 jumps into the summer world (handy for testing).
+    // Links: ?join=CODE joins a room; ?autostart=1 jumps straight into the world (handy for testing).
     const check = (url?: string | null) => {
       if (!url) return;
       const join = /[?&]join=([A-Z0-9]{5})/.exec(url);
-      const s = /[?&]season=(spring|summer|autumn|winter)/.exec(url)?.[1] as Season | undefined;
       if (join && isRoomCode(join[1])) setMode({ kind: 'guest', code: join[1] });
-      else if (/[?&]autostart=1/.test(url)) setMode({ kind: 'solo', season: s ?? 'summer', fresh: false });
+      else if (/[?&]autostart=1/.test(url)) setMode({ kind: 'solo', fresh: false });
       else return;
       endIntro(); // a link goes straight in, no intro
     };
@@ -135,19 +138,22 @@ export default function App() {
     AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(p)).catch(() => {});
   };
   const go = (m: Mode) => { sound.resume(); sound.play('tap'); setMode(m); };
-  const code = joinCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const info = SEASON_INFO[season];
-  const hasSave = saved.has(season);
+  /** Tapping the character tries on the next colour. */
+  const nextColor = () => {
+    sound.resume(); sound.play('tap');
+    const i = AVATAR_COLORS.indexOf(profile.color);
+    updateProfile({ ...profile, color: AVATAR_COLORS[(i + 1) % AVATAR_COLORS.length] });
+  };
 
   if (mode) {
-    const exit = () => { setMode(null); refreshSaves(); };
+    const exit = () => setMode(null);
     return (
       <GestureHandlerRootView style={styles.root}>
         <StatusBar hidden />
         <LoadBoundary onExit={exit}>
           <Suspense fallback={<PlayLoading />}>
-            <Play key={mode.kind === 'solo' ? `solo-${mode.season}` : `${mode.kind}-${mode.code}`} mode={mode} profile={profile} onProfile={updateProfile} onExit={exit}
-              onHost={mode.kind === 'solo' ? () => setMode({ kind: 'host', season: mode.season, code: newRoomCode(), fromSave: true }) : undefined} />
+            <Play key={mode.kind === 'solo' ? 'solo' : `${mode.kind}-${mode.code}`} mode={mode} profile={profile} onProfile={updateProfile} onExit={exit}
+              onHost={mode.kind === 'solo' ? () => setMode({ kind: 'host', code: newRoomCode(), fromSave: true }) : undefined} />
           </Suspense>
         </LoadBoundary>
       </GestureHandlerRootView>
@@ -157,59 +163,28 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <StatusBar hidden />
-      <View style={[styles.title, { backgroundColor: titleBg[season] }]}>
+      <View style={styles.title}>
+        <View pointerEvents="none" style={styles.moonGlow} />
+        <View pointerEvents="none" style={styles.moon} />
+        <InstallButton />
         <Pressable testID="mute" style={styles.muteTitle} onPress={() => { sound.setMuted(!muted); setMuted(!muted); }}>
           <Text style={styles.muteText}>{muted ? '🔇' : '🔊'}</Text>
         </Pressable>
-        <Text style={styles.logo}>Voxel Valley</Text>
-        <View style={styles.profileRow}>
-          <TextInput testID="name" style={styles.nameInput} value={profile.name} maxLength={12} placeholder="이름"
-            placeholderTextColor="#8aa" onChangeText={(name) => updateProfile({ ...profile, name })} />
-          {AVATAR_COLORS.map((c) => (
-            <Pressable key={c} onPress={() => updateProfile({ ...profile, color: c })}
-              style={[styles.colorDot, { backgroundColor: css(c) }, profile.color === c && styles.colorDotOn]} />
-          ))}
-        </View>
 
-        <View style={styles.seasonRow}>
-          {SEASONS.map((s) => (
-            <Pressable key={s} testID={`season-${s}`} onPress={() => { sound.resume(); sound.play('tap'); setSeason(s); }}
-              style={[styles.seasonCard, { borderColor: s === season ? 'white' : 'transparent', backgroundColor: SEASON_INFO[s].color }]}>
-              <Text style={styles.seasonEmoji}>{SEASON_INFO[s].emoji}</Text>
-              <Text style={styles.seasonName}>{SEASON_INFO[s].name}</Text>
-              {saved.has(s) && <Text style={styles.seasonSaved}>저장됨</Text>}
-            </Pressable>
-          ))}
-        </View>
-        <Text style={styles.tagline}>{info.tagline}</Text>
-
-        <View style={styles.columns}>
-          <View style={styles.column}>
-            <Pressable testID="start" style={[styles.cta, { backgroundColor: '#3f9d63' }]}
-              onPress={() => go({ kind: 'solo', season, fresh: false })}>
-              <Text style={styles.ctaText}>{hasSave ? `${info.name} 세계 이어서 하기` : `${info.name} 세계로 입장`}</Text>
-            </Pressable>
-            {hasSave && (
-              <Pressable testID="new-world" style={styles.smallBtn}
-                onPress={async () => { await clearSave(season); go({ kind: 'solo', season, fresh: true }); }}>
-                <Text style={styles.smallBtnText}>{`새 ${info.name} 세계 만들기`}</Text>
-              </Pressable>
-            )}
-          </View>
-          <View style={styles.column}>
-            <Pressable testID="host" style={[styles.cta, { backgroundColor: '#d9804f' }]}
-              onPress={() => go({ kind: 'host', season, code: newRoomCode() })}>
-              <Text style={styles.ctaText}>{`친구와 ${info.name} 방 만들기`}</Text>
-            </Pressable>
-            <View style={styles.joinRow}>
-              <TextInput testID="code" style={styles.codeInput} value={code} maxLength={5} autoCapitalize="characters"
-                autoCorrect={false} placeholder="방 코드" placeholderTextColor="#cdd" onChangeText={setJoinCode} />
-              <Pressable testID="join" disabled={!isRoomCode(code)}
-                style={[styles.joinBtn, !isRoomCode(code) && { opacity: 0.4 }]}
-                onPress={() => go({ kind: 'guest', code })}>
-                <Text style={styles.ctaText}>참가</Text>
-              </Pressable>
+        <View style={styles.stage}>
+          <Pressable testID="hero" onPress={nextColor} accessibilityLabel="캐릭터 색 바꾸기">
+            <Hero color={css(profile.color)} />
+          </Pressable>
+          <View style={styles.card}>
+            <View style={styles.levelBadge}>
+              <Text style={styles.levelLabel}>Lv.</Text>
+              <Text testID="level" style={styles.levelValue}>{level}</Text>
             </View>
+            <TextInput testID="name" style={styles.nameInput} value={profile.name} maxLength={12} placeholder="이름"
+              placeholderTextColor="#5d6680" onChangeText={(name) => updateProfile({ ...profile, name })} />
+            <Pressable testID="start" style={styles.cta} onPress={() => go({ kind: 'solo', fresh: false })}>
+              <Text style={styles.ctaText}>입장</Text>
+            </Pressable>
           </View>
         </View>
       </View>
@@ -218,36 +193,24 @@ export default function App() {
   );
 }
 
-const titleBg: Record<Season, string> = { spring: '#5b4a63', summer: '#2f4b5c', autumn: '#5c4636', winter: '#3d5568' };
-
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#bfe3f5' },
-  title: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 9 },
+  root: { flex: 1, backgroundColor: '#070a14' },
+  title: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#070a14', overflow: 'hidden' },
+  moonGlow: { position: 'absolute', top: 14, right: 76, width: 94, height: 94, borderRadius: 47, backgroundColor: 'rgba(150,170,230,0.07)' },
+  moon: { position: 'absolute', top: 38, right: 100, width: 46, height: 46, borderRadius: 23, backgroundColor: '#aeb8d4', opacity: 0.7 },
   muteTitle: { position: 'absolute', top: 14, right: 18, padding: 8 },
   muteText: { fontSize: 22 },
-  logo: { color: 'white', fontSize: 32, fontWeight: '800' },
-  profileRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  nameInput: { width: 140, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.14)',
-    color: 'white', fontSize: 15, fontWeight: '700' },
-  colorDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: 'transparent' },
-  colorDotOn: { borderColor: 'white', transform: [{ scale: 1.15 }] },
-  seasonRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  seasonCard: { width: 92, paddingVertical: 8, borderRadius: 14, alignItems: 'center', borderWidth: 3 },
-  seasonEmoji: { fontSize: 24 },
-  seasonName: { color: 'white', fontSize: 16, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.25)', textShadowRadius: 3 },
-  seasonSaved: { color: 'white', fontSize: 10, fontWeight: '700', opacity: 0.9 },
-  tagline: { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
-  columns: { flexDirection: 'row', gap: 24, alignItems: 'flex-start' },
-  column: { alignItems: 'center', gap: 8 },
-  cta: { width: 240, paddingVertical: 12, borderRadius: 14, alignItems: 'center' },
-  ctaText: { color: 'white', fontSize: 16, fontWeight: '700' },
-  smallBtn: { paddingVertical: 4, paddingHorizontal: 10 },
-  smallBtnText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, textDecorationLine: 'underline' },
-  joinRow: { flexDirection: 'row', width: 240, gap: 8 },
-  codeInput: { flex: 1, paddingHorizontal: 12, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.14)', color: 'white',
-    fontSize: 17, fontWeight: '800', letterSpacing: 3 },
-  joinBtn: { paddingHorizontal: 18, paddingVertical: 12, borderRadius: 14, backgroundColor: '#5f8fe0' },
-  loading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#2f4b5c', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  stage: { flexDirection: 'row', alignItems: 'center', gap: 44 },
+  card: { alignItems: 'center', gap: 12 },
+  levelBadge: { flexDirection: 'row', alignItems: 'baseline', gap: 6, paddingHorizontal: 22, paddingVertical: 6, borderRadius: 16,
+    borderWidth: 1.5, borderColor: 'rgba(242,201,76,0.55)', backgroundColor: 'rgba(242,201,76,0.08)' },
+  levelLabel: { color: '#f2c94c', fontSize: 18, fontWeight: '800' },
+  levelValue: { color: '#f2c94c', fontSize: 40, fontWeight: '900' },
+  nameInput: { width: 180, paddingVertical: 4, textAlign: 'center', color: '#e8ecf6', fontSize: 20, fontWeight: '800',
+    borderBottomWidth: 1, borderBottomColor: 'rgba(232,236,246,0.18)' },
+  cta: { width: 180, marginTop: 6, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: '#3a4a7a' },
+  ctaText: { color: 'white', fontSize: 17, fontWeight: '800', letterSpacing: 2 },
+  loading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#070a14', alignItems: 'center', justifyContent: 'center', gap: 10 },
   loadingText: { color: 'white', fontSize: 18, textAlign: 'center', paddingHorizontal: 30 },
   loadingButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
   loadingBtn: { width: 160, paddingVertical: 12, borderRadius: 14, alignItems: 'center' },

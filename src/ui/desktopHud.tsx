@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { HeadState } from '../input/headTypes';
 import { Store, THEME, useStore } from './hud';
@@ -12,10 +12,12 @@ import { Store, THEME, useStore } from './hud';
 // Laid out like Nexon's 서든어택 defaults (https://guide.sa.nexon.com/guide/25) where this game has
 // the same thing; F (특수기능) is the carpet here.
 const GUIDE: [string, string][] = [
-  ['마우스', '둘러보기'],
+  ['마우스 · 방향키', '둘러보기'],
   ['W A S D', '이동'],
-  ['Space', '점프 · 상승'],
-  ['Shift', '걷기 (발소리 없음) · 하강'],
+  ['Space · Enter', '점프 · 공중에서 한 번 더: 이단 점프'],
+  ['Shift', '블록 쌓기 (어떤 도구를 들고 있어도)'],
+  ['⌘ · Ctrl + Shift', '누르고 있으면 블록 깨기 (맥 ⌘ · 윈도우 Ctrl)'],
+  ['Alt', '걷기 (발소리 없음)'],
   ['Ctrl · C', '앉기 · 하강'],
   ['좌클릭', '지팡이: 쓸어 표시 · 블록: 캐기 · 검: 베기'],
   ['우클릭', '지팡이: 💥 부수기 · 블록: 놓기'],
@@ -30,15 +32,31 @@ const GUIDE: [string, string][] = [
   ['[ · ]', '마우스 속도 − / +'],
   ['🎧 에어팟 누르기', '1번 클릭 · 2번 휠↓ · 3번 휠↑'],
   ['K', '🎧 에어팟 마우스 켜기 / 끄기'],
-  ['Esc', '마우스 풀기 · 메뉴'],
+  ['Esc', '일시정지'],
+  ['⌘ · Ctrl + Enter', '창 모드 ↔ 전체 화면 (두 키를 같이)'],
 ];
 
 export function ClickToPlay({ onPress, resumed }: { onPress: () => void; resumed: boolean }) {
+  // No mouse needed: Enter or Space starts too. Taken before the game's own key handler sees it,
+  // so that press doesn't also jump.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (!['Enter', 'NumpadEnter', 'Space'].includes(e.code)) return;
+      if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
+      e.preventDefault();
+      e.stopPropagation();
+      onPress();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onPress]);
   return (
     <Pressable testID="click-to-play" style={styles.veil} onPress={onPress}>
       <View style={styles.card}>
-        <Text style={styles.title}>{resumed ? '🖱 클릭해서 계속하기' : '🖱 클릭해서 플레이'}</Text>
-        <Text style={styles.sub}>전체 화면으로 바뀌고 마우스가 고정돼요 · 움직이는 대로 시점이 돌아요 · Esc로 나가기</Text>
+        <Text style={styles.title}>{resumed ? '▶ 클릭 · Enter로 계속하기' : '▶ 클릭 · Enter로 플레이'}</Text>
+        <Text style={styles.sub}>마우스가 고정돼요 · Shift 쌓기 · ⌘/Ctrl+Shift 깨기 · Esc 일시정지 · ⌘/Ctrl+Enter 전체 화면</Text>
         <View style={styles.grid}>
           {GUIDE.map(([k, v]) => (
             <View key={k} style={styles.row}>
@@ -58,10 +76,10 @@ export function KeyHints({ flying, drawing }: { flying: boolean; drawing: boolea
   const { width } = useWindowDimensions();
   const hintsWidth = Math.max(150, width / 2 - 200);
   const items = flying
-    ? ['W 앞으로', 'Space 상승', 'Shift · Ctrl 하강', 'F 착륙', 'V 시점']
+    ? ['W 앞으로', 'Space 상승', 'Ctrl 하강', 'F 착륙', 'V 시점']
     : drawing
-      ? ['좌클릭 쓸어서 표시', '우클릭 · 5 💥', 'R 재장전', '2 블록 · 3 검', 'Ctrl 앉기', 'Esc 메뉴']
-      : ['좌클릭 캐기', '우클릭 놓기', '1 지팡이 · 3 검', 'Q 이전 무기', 'Ctrl 앉기', 'Esc 메뉴'];
+      ? ['좌클릭 쓸어서 표시', '우클릭 · 5 💥', 'Shift 쌓기', '⌘/Ctrl+Shift 깨기', '⌘/Ctrl+Enter 전체 화면', 'Esc 일시정지']
+      : ['Shift 쌓기', '⌘/Ctrl+Shift 깨기', '좌클릭 캐기 · 우클릭 놓기', '1 지팡이 · 3 검', '⌘/Ctrl+Enter 전체 화면', 'Esc 일시정지'];
   return (
     <View pointerEvents="none" style={[styles.hints, { maxWidth: hintsWidth }]}>
       {items.map((t) => <Text key={t} style={styles.hint}>{t}</Text>)}

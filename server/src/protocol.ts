@@ -16,9 +16,12 @@ export const MAX_MESSAGE_BYTES = 1_500_000;
 export const MAX_CREATE_EDITS = 50_000;
 export const MAX_ROOM_EDITS = 200_000;
 
-/** 0 = the valley, 1 = the future city, 2 = space, 3 = the 꿀알바 store street. Edit keys for 1..3 carry an "f:" / "s:" / "k:" prefix. */
-export type DimCode = 0 | 1 | 2 | 3;
-export const DIM_PREFIX = ['', 'f:', 's:', 'k:'] as const;
+/**
+ * 0 = the valley, 1 = the future city, 2 = space, 3 = the 꿀알바 store street, 4 = 암흑 안방 (the maze),
+ * 5 = 끝없는 주차장 (the car park). Edit keys for 1..5 carry an "f:" / "s:" / "k:" / "m:" / "p:" prefix.
+ */
+export type DimCode = 0 | 1 | 2 | 3 | 4 | 5;
+export const DIM_PREFIX = ['', 'f:', 's:', 'k:', 'm:', 'p:'] as const;
 
 export type PlayerInfo = { id: string; name: string; color: number; x: number; y: number; z: number; yaw: number; d: DimCode };
 
@@ -44,11 +47,11 @@ const isSeed = (v: unknown): v is number => Number.isInteger(v) && (v as number)
 const isColor =(v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 0xffffff;
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1_000_000;
 export const isBlock = (b: unknown): b is number => Number.isInteger(b) && (b as number) >= 0 && (b as number) < BLOCK_TYPES;
-const dimOf = (v: unknown): DimCode => (v === 1 || v === 2 || v === 3 ? v : 0);
+const dimOf = (v: unknown): DimCode => (v === 1 || v === 2 || v === 3 || v === 4 || v === 5 ? v : 0);
 
 export const isEditKey = (k: unknown): k is string => {
   if (typeof k !== 'string') return false;
-  if (k.startsWith('f:') || k.startsWith('s:') || k.startsWith('k:')) k = k.slice(2);
+  if (DIM_PREFIX.some((p) => p && (k as string).startsWith(p))) k = k.slice(2);
   const p = (k as string).split(',');
   return p.length === 3 && p.every((n) => /^-?\d{1,6}$/.test(n)) && Number(p[1]) >= 0 && Number(p[1]) < WORLD_HEIGHT;
 };

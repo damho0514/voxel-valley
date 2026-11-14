@@ -6,13 +6,16 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import * as THREE from 'three';
 import { sound } from '../audio/sound';
-import { Block, BLOCKS, Dimension, DIMENSION_INFO, Season, SEASON_INFO } from '../game/blocks';
+import { Block, BLOCKS, Dimension, DIMENSION_INFO, DIMENSIONS } from '../game/blocks';
+import { PARK_LEVEL_NAMES, parkingLevelAt } from '../game/darkworlds';
+import { spawnGuides } from '../game/guides';
+import { trackAt } from '../game/zones';
 import { addTime, report, time } from '../game/prof';
 import { Bot, knockBack, makeAnimal, spawnAnimals, spawnBots, spawnRobots, SPECIES_INFO } from '../game/bots';
 import { Game, HudState, Input, REACH } from '../game/game';
 import { loadSave, Save, writeSave } from '../game/storage';
 import { DimCode, parseEditKey, PlayerInfo, RoomClient, Welcome } from '../net/room';
-import { isBlock } from '../../server/src/protocol';
+import { DIM_PREFIX, isBlock } from '../../server/src/protocol';
 import { InvitePanel } from '../ui/invite';
 import { RIFT_SWAP, RiftVortex } from '../ui/rift';
 import { VoxelRenderer } from '../render/renderer';
@@ -52,7 +55,7 @@ import { raycast } from '../game/raycast';
  * GL/sensor/haptics modules, so App loads it lazily: the title screen starts without any of it.
  */
 
-const DIMS: Dimension[] = ['valley', 'future', 'space', 'store'];
+const DIMS: Dimension[] = DIMENSIONS;
 const ZERO = { x: 0, y: 0, z: 0 };
 const dimCode = (d: Dimension) => DIMS.indexOf(d) as DimCode;
 
@@ -93,6 +96,20 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   const inputRef = useRef<Input>({ moveX: 0, moveY: 0, lookDX: 0, lookDY: 0, jump: false, down: false, dig: false, placeTap: false });
   const [dim, setDim] = useState<Dimension>('valley');
   const [flash] = useState(() => new Animated.Value(0));
+  /** The name of the place you just entered (or the car-park floor you walked onto), fading in and out. */
+  const [place, setPlace] = useState<{ title: string; sub?: string } | null>(null);
+  const [placeAnim] = useState(() => new Animated.Value(0));
+  const showPlaceRef = useRef<(title: string, sub?: string) => void>(() => {});
+  showPlaceRef.current = (title, sub) => {
+    setPlace({ title, sub });
+    placeAnim.stopAnimation();
+    placeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(placeAnim, { toValue: 1, duration: 450, useNativeDriver: false }),
+      Animated.delay(2200),
+      Animated.timing(placeAnim, { toValue: 0, duration: 900, useNativeDriver: false }),
+    ]).start();
+  };
   /** The 꿀알바 rift swirl is on screen (dug too deep in the valley). */
   const [rift, setRift] = useState(false);
   const [hurtFlash] = useState(() => new Animated.Value(0));
@@ -177,8 +194,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   const [manualOpen, setManualOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const photoBuildRef = useRef<PhotoBuild | null>(null);
-  /** Photo rooms are remembered per world: each season's solo world, or the room code. */
-  const photoKey = mode.kind === 'guest' ? `room-${mode.code}` : mode.season;
+  /** Photo rooms are remembered per world: the solo world (its old 'summer' key), or the room code. */
+  const photoKey = mode.kind === 'guest' ? `room-${mode.code}` : 'summer';
   const [chests, setChests] = useState<ChestEvent[]>([]);
   const chestCount = useRef(0);
   const buffList = useBuffs();
@@ -187,8 +204,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   const sens = SENSITIVITY[profile.sensitivity ?? 1];
   const sensRef = useRef(sens.k);
   useEffect(() => { sensRef.current = sens.k; }, [sens.k]);
-  /** Who's around (bots, robots, pets) and the season, refreshed with the HUD. */
-  const [locals, setLocals] = useState<{ friends: { id: string; name: string; color: number }[]; robots: number; season?: Season }>({ friends: [], robots: 0 });
+  /** Who's around (bots, robots, pets), refreshed with the HUD. */
+  const [locals, setLocals] = useState<{ friends: { id: string; name: string; color: number }[]; robots: number }>({ friends: [], robots: 0 });
 
   // Settings take effect immediately.
   useEffect(() => {
@@ -346,21 +363,21 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       // Spawn beside someone already there, if anyone has a position yet.
       const near = w.players.find((p) => p.y > -50);
       // Room edits for every dimension come in one list; sort them into worlds.
-      const byDim: Record<Dimension, [string, Block][]> = { valley: [], future: [], space: [], store: [] };
+      const byDim = Object.fromEntries(DIMS.map((d) => [d, []])) as unknown as Record<Dimension, [string, Block][]>;
       for (const [key, b] of w.edits) {
         const [d, x, y, z] = parseEditKey(key);
-        byDim[DIMS[d]].push([`${x},${y},${z}`, b as Block]);
+        byDim[DIMS[d]]?.push([`${x},${y},${z}`, b as Block]);
       }
       const nearValley = near && near.d === 0 ? near : undefined;
-      start = { seed: w.seed, season: w.season, edits: byDim.valley, dimEdits: { future: byDim.future, space: byDim.space, store: byDim.store },
+      start = { seed: w.seed, edits: byDim.valley, dimEdits: byDim,
         pos: nearValley ? [nearValley.x + 1, nearValley.y + 0.5, nearValley.z] : undefined };
       setLoading('계곡을 만드는 중...');
     } else if ((mode.kind === 'solo' && !mode.fresh) || (mode.kind === 'host' && mode.fromSave)) {
       // Inviting from a solo world opens that same world (with everything built and broken) as a room.
-      start = await loadSave(mode.season);
+      start = await loadSave();
     }
     if (!alive.current) return;
-    if (!start) start = { seed: Math.floor(Math.random() * 2 ** 31), season: mode.kind === 'guest' ? 'summer' : mode.season, edits: [] };
+    if (!start) start = { seed: Math.floor(Math.random() * 2 ** 31), edits: [] };
 
     const game = new Game(start);
     gameRef.current = game;
@@ -369,8 +386,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     if (__DEV__ && Platform.OS === 'web') (globalThis as { __vvBuffs?: typeof buffs }).__vvBuffs = buffs;
     setPalette(game.palette);
     const view = new VoxelRenderer(gl, game.world);
-    view.setDimension(game.dim, game.world.season);
-    sound.setTrack(game.dim);
+    view.setDimension(game.dim);
+    sound.setTrack(trackAt(game.dim, game.body.x, game.body.y, game.body.z));
     setDim(game.dim);
     game.onBlockChanged = (x, z) => view.blockChanged(x, z);
     game.onEdit = (x, y, z, b) => roomRef.current?.sendEdit(x, y, z, b, dimCode(game.dim));
@@ -540,8 +557,12 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     };
     game.onDimension = (d) => {
       view.setWorld(game.world);
-      view.setDimension(d, game.world.season);
-      sound.setTrack(d);
+      view.setDimension(d);
+      sound.setTrack(trackAt(d, game.body.x, game.body.y, game.body.z));
+      sound.arrive(d);
+      lastLevel = d === 'parking' ? parkingLevelAt(game.body.y) : -1;
+      const info = DIMENSION_INFO[d];
+      showPlaceRef.current(`${info.emoji} ${info.name}`, d === 'parking' ? `${PARK_LEVEL_NAMES[lastLevel]} · ${info.tagline}` : info.tagline);
       botsRef.current = [];
       deadBots = [];
       animalsRef.current = [];
@@ -559,11 +580,9 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         const sv = game.toSave();
         const add = (prefix: string, list: [string, Block][] | undefined) => { for (const [k, b] of list ?? []) if (isBlock(b) && edits.length < 20000) edits.push([prefix + k, b]); };
         add('', sv.edits);
-        add('f:', sv.dimEdits?.future);
-        add('s:', sv.dimEdits?.space);
-        add('k:', sv.dimEdits?.store);
+        DIMS.forEach((d, i) => { if (i > 0) add(DIM_PREFIX[i], sv.dimEdits?.[d]); });
       }
-      void connect({ t: 'create', name: profile.name, color: profile.color, seed: game.world.seed, season: game.world.season, edits }, mode.code)
+      void connect({ t: 'create', name: profile.name, color: profile.color, seed: game.world.seed, season: 'summer' /* the protocol still carries one; there is only one world */, edits }, mode.code)
         .then(() => { if (mode.fromSave && alive.current) setInviteOpen(true); });
     }
 
@@ -571,6 +590,13 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     let lastXray = 0, xrayOn = false;
     let last = Date.now(), lastHud = 0, ready = false, lastBreath = 0, lastRumble = 0, lastQuake = 0, lastSwing = 0, lastAnimalCheck = 0;
     let petsPlaced = false;
+    /** Which car-park floor you were last on (-1 elsewhere), and when the place's sound was last checked. */
+    let lastLevel = -1, lastZone = 0;
+    view.onFlicker = () => {
+      buzz(Haptics.ImpactFeedbackStyle.Light);
+      if (Math.random() < 0.35) sound.play('creak');
+    };
+    view.onLampOut = () => sound.play('lampoff');
     let deadBots: { bot: Bot; at: number }[] = [];
     petsRef.current = (profile.pets ?? []).map((sp, i) => {
       const pet = makeAnimal(`pet-${i}`, sp, game.body.x, game.body.y, game.body.z);
@@ -744,9 +770,22 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         if (now - lastXray > 1000) { lastXray = now; view.xray.set(game.treasureNear(10)); xrayOn = true; }
       } else if (xrayOn) { xrayOn = false; view.xray.set([]); }
       Object.assign(frameInput, input);
-      frameInput.dig = !armed && !drawingRef.current && (input.dig || !!touch.hold);
-      frameInput.placeTap = !armed && !drawingRef.current && (input.placeTap || (!!touch.tap && !consumed));
+      // The keyboard's Shift (place) and ⌘/Ctrl + Shift (break) work with any tool in hand.
+      frameInput.dig = (!armed && !drawingRef.current && (input.dig || !!touch.hold)) || (!!input.keyDig && !game.flying);
+      frameInput.placeTap = (!armed && !drawingRef.current && (input.placeTap || (!!touch.tap && !consumed))) || (!!input.keyPlace && !game.flying);
       game.update(dt, frameInput, ready);
+      // Where you are decides the music: the castle grounds, the car park above or below the street.
+      if (now - lastZone > 400) {
+        lastZone = now;
+        sound.setTrack(trackAt(game.dim, game.body.x, game.body.y, game.body.z));
+        if (game.dim === 'parking') {
+          const lv = parkingLevelAt(game.body.y);
+          if (lv !== lastLevel) {
+            lastLevel = lv;
+            showPlaceRef.current(`🅿️ ${PARK_LEVEL_NAMES[lv]}`, lv < 4 ? '지하' : lv === PARK_LEVEL_NAMES.length - 1 ? '하늘이 보인다' : '지상');
+          }
+        } else if (game.dim === 'maze' && Math.random() < 0.02) sound.play('creak');
+      }
       if (photoBuildRef.current) stepPhotoBuild(photoBuildRef.current, now);
       view.effects.setDig(game.dig, game.target?.x, game.target?.y, game.target?.z);
       // Speed streaks + FOV kick when flying fast in space or air-jumping in the city.
@@ -767,11 +806,13 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       input.turnYaw = 0;
       input.turnPitch = 0;
       input.placeTap = false;
+      input.keyPlace = false;
       touch.tap = null;
 
       // Friends in the solo valley; robot citizens in the future city (in rooms too).
       if (ready && botsRef.current.length === 0) {
-        if (game.dim === 'valley' && mode.kind === 'solo') botsRef.current = spawnBots(game.world, game.body);
+        // The guides wait at the dark gate in every valley, solo or in a room.
+        if (game.dim === 'valley') botsRef.current = [...(mode.kind === 'solo' ? spawnBots(game.world, game.body) : []), ...spawnGuides(game.world)];
         else if (game.dim === 'future') botsRef.current = spawnRobots(game.world, game.body);
       }
       // Destroyed bots come back after 30 s, somewhere near you.
@@ -786,7 +827,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       // Wild animals in the valley; topped up now and then.
       if (ready && game.dim === 'valley' && now - lastAnimalCheck > 20000) {
         lastAnimalCheck = now;
-        if (animalsRef.current.length < 4) animalsRef.current = [...animalsRef.current, ...spawnAnimals(game.world, game.body, game.world.season, 6 - animalsRef.current.length)];
+        if (animalsRef.current.length < 4) animalsRef.current = [...animalsRef.current, ...spawnAnimals(game.world, game.body, 6 - animalsRef.current.length)];
       }
       // Pets appear beside you whenever you arrive somewhere.
       if (ready && !petsPlaced) {
@@ -934,10 +975,9 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
           ...petsRef.current.map((p) => ({ id: p.id, name: `❤️ ${SPECIES_INFO[p.species!].name}`, color: p.color })),
         ];
         const robots = botsRef.current.filter((b) => b.robot).length;
-        const season = game.world.season;
-        setLocals((prev) => prev.robots === robots && prev.season === season && prev.friends.length === friends.length
+        setLocals((prev) => prev.robots === robots && prev.friends.length === friends.length
           && prev.friends.every((f, i) => f.id === friends[i].id && f.name === friends[i].name && f.color === friends[i].color)
-          ? prev : { friends, robots, season });
+          ? prev : { friends, robots });
         if (ready) setLoading(null);
       }
       requestAnimationFrame(frame);
@@ -1247,6 +1287,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         if (drawingRef.current && !flyingRef.current) castSpell();
         else if (!weaponRef.current) inputRef.current.placeTap = true;
       },
+      place: () => { inputRef.current.keyPlace = true; pacer.poke(); },
+      dig: (held) => { inputRef.current.keyDig = held; pacer.poke(); },
       wheel: step,
       slot: pickSlot,
       board: showBoard,
@@ -1291,7 +1333,6 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     ...locals.friends,
     ...(locals.robots ? [{ id: 'robots', name: `로봇 시민 ${locals.robots}명`, color: 0xc9d0da }] : []),
   ];
-  const season = locals.season;
   /** The blade's hotbar slot: second on touch, after the blocks with the keyboard (key 3). */
   const blade = (
     <Pressable testID="weapon" onPress={() => { sound.play('tap'); equip(!weapon); }}
@@ -1349,7 +1390,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
               <View style={[styles.hpFill, { width: `${hp}%`, backgroundColor: hp > 50 ? '#5fd07f' : hp > 25 ? '#f2c94c' : '#ff5a5a' }]} />
             </View>
           </View>
-          {hudReady && desktop && <InfoLine gameRef={gameRef} dim={dim} season={season} />}
+          {hudReady && desktop && <InfoLine gameRef={gameRef} dim={dim} />}
         </View>
         <View style={styles.headerRight}>
           <Pill testID="view" label={desktop ? (viewMode === 'first' ? '👁 1인칭' : '🎥 3인칭') : viewMode === 'first' ? '👁' : '🎥'} onPress={toggleView} />
@@ -1485,7 +1526,13 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
           onSound={chestSound} onBuzz={chestBuzz} onCollect={collectChest} />
       )}
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#ff2a2a', opacity: hurtFlash }]} />
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: dim === 'space' ? '#1a1240' : dim === 'store' ? '#120c2a' : '#e8fbff', opacity: flash }]} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: dim === 'space' ? '#1a1240' : dim === 'store' ? '#120c2a' : dim === 'maze' ? '#000000' : dim === 'parking' ? '#0c0f14' : '#e8fbff', opacity: flash }]} />
+      {place && (
+        <Animated.View pointerEvents="none" style={[styles.placeBanner, { opacity: placeAnim, transform: [{ translateY: placeAnim.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }] }]}>
+          <Text style={styles.placeTitle}>{place.title}</Text>
+          {place.sub ? <Text style={styles.placeSub}>{place.sub}</Text> : null}
+        </Animated.View>
+      )}
       {rift && <RiftVortex size={size} />}
 
       {loading && (
@@ -1528,24 +1575,25 @@ function MenuRow({ icon, label, onPress }: { icon: string; label: string; onPres
 }
 
 /** Place and clock; updates itself so the play screen doesn't re-render. */
-function InfoLine({ gameRef, dim, season }: { gameRef: React.RefObject<Game | null>; dim: Dimension; season?: Season }) {
+function InfoLine({ gameRef, dim }: { gameRef: React.RefObject<Game | null>; dim: Dimension }) {
   const [text, setText] = useState('');
   useEffect(() => {
     const tick = () => {
       const g = gameRef.current;
       if (!g) return;
-      const h = g.hud();
-      const where = dim !== 'valley' ? `${DIMENSION_INFO[dim].emoji} ${DIMENSION_INFO[dim].name}` : season ? `${SEASON_INFO[season].emoji} ${h.timeLabel}` : h.timeLabel;
-      setText([where, dim === 'future' ? h.timeLabel : null].filter(Boolean).join('  ·  '));
+      setText(`${DIMENSION_INFO[dim].emoji} ${DIMENSION_INFO[dim].name}`);
     };
     tick();
     const id = setInterval(tick, 700);
     return () => clearInterval(id);
-  }, [gameRef, dim, season]);
+  }, [gameRef, dim]);
   return <Text pointerEvents="none" style={styles.info}>{text}</Text>;
 }
 
 const styles = StyleSheet.create({
+  placeBanner: { position: 'absolute', top: '22%', left: 16, right: 16, alignItems: 'center' },
+  placeTitle: { color: '#fff', fontSize: 30, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.85)', textShadowRadius: 12, textAlign: 'center' },
+  placeSub: { color: 'rgba(255,255,255,0.78)', fontSize: 14, marginTop: 6, textShadowColor: 'rgba(0,0,0,0.85)', textShadowRadius: 8, textAlign: 'center' },
   // Effects fly past the edges (rays, banknotes, the chest lid): clip them so the web page never scrolls.
   root: { flex: 1, backgroundColor: '#bfe3f5', overflow: 'hidden' },
   cta: { width: 240, paddingVertical: 12, borderRadius: 14, alignItems: 'center' },

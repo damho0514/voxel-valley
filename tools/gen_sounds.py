@@ -83,6 +83,9 @@ def main():
     if sys.argv[1:] == ['intro']:  # just the launch intro stings
         intro_sounds()
         return
+    if sys.argv[1:] == ['places']:  # place music (maze, car park, castle) and the arrival stings
+        place_sounds()
+        return
 
     b = blank(0.09)  # one scrape while digging
     noise(b, 0, 0.09, vol=0.5, smooth=0.55, decay=0.03, seed=3)
@@ -464,6 +467,206 @@ def intro_sounds():
         for k, n in enumerate((84, 88, 91, 96, 100)):
             tone(b, slam + 0.1 + k * 0.06, 0.5, midi(n), vol=0.1, decay=0.14, attack=0.002)
         save(name, b, peak=0.8)
+
+
+# ───────────── Places: the dark worlds, the castle, and a sting for arriving anywhere (all original) ─────────────
+
+def whisper(buf, start, length, vol=0.05, seed=1):
+    """Breathy syllables with no words: short bursts of airy noise in an uneven rhythm."""
+    rng = random.Random(seed)
+    t = start
+    while t < start + length:
+        d = rng.uniform(0.07, 0.18)
+        noise(buf, t, d, vol=vol * rng.uniform(0.5, 1.0), smooth=rng.uniform(0.15, 0.35), attack=d * 0.4, release=d * 0.5, seed=rng.randint(0, 99999))
+        t += d + rng.choice((0.02, 0.04, 0.09, 0.25))
+
+
+def creak(buf, start, vol=0.12, seed=1):
+    """An old floorboard or door hinge taking weight, slowly."""
+    rng = random.Random(seed)
+    f0 = rng.uniform(170, 260)
+    length = rng.uniform(0.7, 1.4)
+    wobble(buf, start, length, f0, f0 * rng.uniform(0.6, 0.8), vib=0.08, vib_rate=rng.uniform(14, 22), vol=vol,
+           harmonics=((1, 1.0), (2, 0.7), (3, 0.5), (5, 0.3)), attack=0.15, release=0.25)
+    noise(buf, start, length, vol=vol * 0.3, smooth=0.6, attack=0.1, release=0.2, seed=seed + 7)
+
+
+def thud(buf, start, vol=0.4, double=False):
+    """Something heavy, far off, behind a wall."""
+    tone(buf, start, 0.5, 62, vol=vol, freq_end=34, decay=0.16, attack=0.004)
+    noise(buf, start, 0.12, vol=vol * 0.3, smooth=0.9, decay=0.05, seed=int(start * 100))
+    if double:
+        tone(buf, start + 0.28, 0.45, 58, vol=vol * 0.7, freq_end=32, decay=0.15, attack=0.004)
+
+
+def tube_hum(buf, start, length, vol=0.05, base=120.0, seed=1):
+    """A fluorescent tube at full hum-buzz: mains-hum harmonics, a fizz, and an uneven waver."""
+    BUZZ = ((1, 1.0), (2, 0.7), (3, 0.55), (4, 0.4), (5, 0.3), (7, 0.18), (9, 0.1))
+    wobble(buf, start, length, base, base, vib=0.002, vib_rate=0.31, vol=vol, harmonics=BUZZ, attack=1.0, release=1.0)
+    wobble(buf, start, length, base * 1.004, base * 1.004, vib=0.003, vib_rate=0.17, vol=vol * 0.6, harmonics=BUZZ, attack=1.0, release=1.0)
+    noise(buf, start, length, vol=vol * 0.12, smooth=0.15, attack=1.0, release=1.0, seed=seed)  # the fizz
+
+
+def maze_music():
+    """노란 방: nothing but the panels' hum-buzz, the dead air of an empty office floor, a ballast
+    ticking somewhere, and now and then something heavy far off behind the walls (original)."""
+    total = 44.0
+    b = blank(total + 1.0)
+    tube_hum(b, 0, total + 1, vol=0.06, seed=801)
+    noise(b, 0, total + 1, vol=0.05, smooth=0.985, attack=2.0, release=2.0, seed=802)  # room tone
+    for t0, length in ((6.0, 10.0), (27.0, 12.0)):  # a second tube somewhere joins in, slightly out of tune
+        tube_hum(b, t0, length, vol=0.025, base=123.5, seed=int(t0 * 10))
+    rng = random.Random(803)
+    t = 2.0
+    while t < total - 1:  # a failing ballast ticking, in uneven little runs
+        for k in range(rng.randint(1, 4)):
+            noise(b, t + k * 0.09, 0.012, vol=0.08, smooth=0.1, decay=0.004, seed=rng.randint(0, 9999))
+        t += rng.uniform(3.0, 7.5)
+    for t, dbl in ((13.6, False), (35.0, True)):
+        thud(b, t, vol=0.25, double=dbl)
+    for t in (21.3, 40.2):
+        creak(b, t, vol=0.06, seed=int(t * 10))
+    return loop_crossfade(b, 1.0)
+
+
+def lampoff():
+    """A panel dying behind you: the relay's clack, a buzz that sags and stutters out."""
+    b = blank(0.9)
+    noise(b, 0, 0.03, vol=0.7, smooth=0.3, decay=0.008, seed=881)
+    tone(b, 0, 0.05, 1800, vol=0.15, decay=0.01, attack=0.001)
+    for k, (t, length) in enumerate(((0.04, 0.16), (0.26, 0.08), (0.4, 0.3))):
+        wobble(b, t, length, 120 - k * 6, 96 - k * 10, vib=0.004, vib_rate=9, vol=0.22 - k * 0.05,
+               harmonics=((1, 1.0), (2, 0.7), (3, 0.5), (5, 0.3)), attack=0.005, release=length * 0.6)
+    return b
+
+
+def parking_under_music():
+    """The car park below the street: tube hum, the ventilation, drips that echo, a door far off."""
+    total = 34.0
+    b = blank(total + 1.0)
+    tone(b, 0, total + 1, 100, vol=0.045, attack=1.0, release=1.0)
+    tone(b, 0, total + 1, 200, vol=0.018, kind='tri', attack=1.0, release=1.0)
+    noise(b, 0, total + 1, vol=0.06, smooth=0.975, attack=1.0, release=1.0, seed=811)
+    noise(b, 0, total + 1, vol=0.006, smooth=0.2, attack=1.0, release=1.0, seed=812)  # the tubes' fizz
+    rng = random.Random(813)
+    t = 1.0
+    while t < total - 1:
+        f = midi(rng.choice((86, 88, 91, 93, 96)))
+        for k, (dt, v) in enumerate(((0, 0.06), (0.21, 0.025), (0.42, 0.01))):
+            tone(b, t + dt, 0.12, f * (1 - 0.02 * k), vol=v, freq_end=f * 1.25, decay=0.03, attack=0.001)
+        t += rng.uniform(1.4, 4.5)
+    for k, (dt, v) in enumerate(((0, 0.3), (0.38, 0.14), (0.76, 0.06), (1.14, 0.025))):  # a fire door, far away
+        tone(b, 15.0 + dt, 0.6, 70, vol=v, freq_end=42, decay=0.14, attack=0.003)
+        noise(b, 15.0 + dt, 0.15, vol=v * 0.4, smooth=0.8, decay=0.05, seed=820 + k)
+    noise(b, 26.0, 1.6, vol=0.035, smooth=0.25, sweep=0.55, attack=0.4, release=0.8, seed=821)  # tyres squealing two floors down
+    wobble(b, 26.0, 1.6, 1150, 820, vol=0.012, attack=0.4, release=0.8)
+    return loop_crossfade(b, 1.0)
+
+
+def parking_music():
+    """The car park in the open: night wind through the levels, the city's far hum, a lonely pad."""
+    total = 36.0
+    b = blank(total + 1.0)
+    rng = random.Random(831)
+    t = 0.0
+    while t < total:  # gusts
+        d = rng.uniform(3.0, 6.0)
+        noise(b, t, d + 1.5, vol=rng.uniform(0.04, 0.09), smooth=rng.uniform(0.94, 0.98), attack=d * 0.5, release=d * 0.5, seed=rng.randint(0, 9999))
+        t += d
+    tone(b, 0, total + 1, 55, vol=0.035, attack=2.0, release=2.0)
+    for i, ch in enumerate(((45, 52, 57, 60), (41, 48, 57, 60), (43, 50, 55, 59))):
+        for n in ch:
+            organ(b, i * 12.0, 13.0, midi(n), 0.012)
+    for t in (9.5, 27.0):  # a horn somewhere in the city
+        tone(b, t, 0.7, midi(64), vol=0.012, attack=0.03, release=0.3)
+        tone(b, t, 0.7, midi(68), vol=0.009, attack=0.03, release=0.3)
+    return loop_crossfade(b, 1.5)
+
+
+def castle_music():
+    """달빛 첨탑성 at night: slow minor organ and a wordless choir, with a bell now and then."""
+    chord_len = 6.0
+    chords = [(45, 57, 60, 64), (41, 57, 60, 65), (38, 53, 57, 62), (40, 52, 56, 59)]
+    b = blank(len(chords) * chord_len * 2 + 2.0)
+    for rep in range(2):
+        for i, ch in enumerate(chords):
+            t0 = (rep * len(chords) + i) * chord_len
+            for n in ch:
+                organ(b, t0, chord_len + 1.2, midi(n), 0.028)
+            for n in ch[1:]:  # the choir: vowel-ish harmonics with a slow vibrato
+                wobble(b, t0 + 0.2, chord_len, midi(n + 12), vib=0.006, vib_rate=4.5, vol=0.012,
+                       harmonics=((1, 1.0), (2, 0.5), (3, 0.35), (4, 0.1)), attack=1.8, release=1.6)
+            if i % 2 == 0:
+                for mult, amp in ((1, 1.0), (2.76, 0.5), (5.4, 0.25)):  # a bell's inharmonic partials
+                    tone(b, t0, 4.0, midi(ch[0]) * mult, vol=0.06 * amp, decay=1.4, attack=0.002)
+    return loop_crossfade(b, 1.2)
+
+
+def arrival_stings():
+    b = blank(1.8)  # the valley: birds and a bright little arpeggio
+    for k, n in enumerate((72, 76, 79, 84)):
+        tone(b, 0.05 + k * 0.09, 0.9, midi(n), vol=0.12, decay=0.35, kind='tri', attack=0.003)
+    rng = random.Random(851)
+    for k in range(6):
+        t = 0.3 + k * 0.17 + rng.uniform(0, 0.05)
+        wobble(b, t, 0.09, rng.uniform(2600, 3400), rng.uniform(3600, 4200), vol=0.05, attack=0.005, release=0.03)
+    save('arrive_valley.wav', loud(b, 0.8), peak=0.8)
+
+    b = blank(1.6)  # the future city: a synth sweep up and a digital chime
+    tone(b, 0, 0.7, 180, vol=0.25, freq_end=1500, kind='tri', attack=0.05, release=0.1)
+    for k, n in enumerate((84, 91)):
+        tone(b, 0.6 + k * 0.12, 0.8, midi(n), vol=0.12, decay=0.3, attack=0.002)
+        tone(b, 0.6 + k * 0.12, 0.8, midi(n) * 2, vol=0.04, decay=0.2, attack=0.002)
+    save('arrive_future.wav', loud(b, 0.8), peak=0.8)
+
+    b = blank(2.6)  # space: a vast whoosh and a low swell
+    noise(b, 0, 2.2, vol=0.5, smooth=0.6, sweep=0.95, attack=0.3, release=1.2, seed=861)
+    tone(b, 0.2, 2.3, 55, vol=0.4, attack=0.9, release=1.0)
+    tone(b, 0.2, 2.3, 82.4, vol=0.18, attack=1.1, release=1.0)
+    save('arrive_space.wav', b, peak=0.75)
+
+    b = blank(2.2)  # the 24h store: an automatic door's two-tone chime (an original interval)
+    for t, n in ((0.0, 88), (0.42, 83)):
+        for mult, amp in ((1, 1.0), (2, 0.3), (3.01, 0.12)):
+            tone(b, t, 1.5, midi(n) * mult, vol=0.18 * amp, decay=0.55, attack=0.002)
+    save('arrive_store.wav', loud(b, 0.8), peak=0.8)
+
+    b = blank(3.0)  # 노란 방: a heavy switch, then the panels stutter on one after another and settle into the hum
+    noise(b, 0, 0.04, vol=0.8, smooth=0.3, decay=0.01, seed=871)
+    tone(b, 0, 0.3, 70, vol=0.6, freq_end=45, decay=0.1, attack=0.002)
+    for k, t in enumerate((0.25, 0.5, 0.62, 0.95, 1.15)):
+        noise(b, t, 0.02, vol=0.35, smooth=0.2, decay=0.006, seed=872 + k)
+        tube_hum(b, t, 3.0 - t, vol=0.05 + 0.012 * k, base=120.0 + k * 0.7, seed=880 + k)
+    save('arrive_maze.wav', b, peak=0.9)
+
+    b = blank(3.0)  # the car park: a heavy steel door slams and rings through the concrete, the tubes flicker on
+    for k, (dt, v) in enumerate(((0, 1.0), (0.33, 0.45), (0.66, 0.2), (0.99, 0.09))):
+        for f, a in ((180, 1.0), (237, 0.7), (311, 0.5), (412, 0.35), (553, 0.2)):
+            tone(b, dt, 1.1, f * (1 - 0.01 * k), vol=0.12 * v * a, decay=0.35, attack=0.002)
+        noise(b, dt, 0.08, vol=0.4 * v, smooth=0.5, decay=0.02, seed=880 + k)
+    for k, t in enumerate((1.3, 1.42, 1.75, 1.83)):
+        tone(b, t, 0.03, 3100 + 200 * k, vol=0.08, decay=0.01, attack=0.001)
+    tone(b, 1.8, 1.1, 100, vol=0.1, attack=0.25, release=0.5)
+    save('arrive_parking.wav', loud(b, 0.9), peak=0.9)
+
+    b = blank(1.6)
+    creak(b, 0.05, vol=0.3, seed=891)
+    save('creak.wav', b, peak=0.7)
+
+
+def loud(buf, peak):
+    """Scales a buffer so its loudest sample sits at `peak` (save() only ever turns things down)."""
+    m = max(1e-9, max(abs(v) for v in buf))
+    return [v * peak / m for v in buf]
+
+
+def place_sounds():
+    save('maze.wav', loud(maze_music(), 0.8), peak=0.8)
+    save('lampoff.wav', lampoff(), peak=0.7)
+    save('parking_under.wav', loud(parking_under_music(), 0.7), peak=0.7)
+    save('parking.wav', loud(parking_music(), 0.6), peak=0.6)
+    save('castle.wav', loud(castle_music(), 0.55), peak=0.55)
+    arrival_stings()
 
 
 if __name__ == '__main__':

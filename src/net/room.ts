@@ -1,11 +1,12 @@
-import { CODE_ALPHABET, CODE_LENGTH, DimCode, PlayerInfo, SeasonName, ServerMsg } from '../../server/src/protocol';
+import { CODE_ALPHABET, CODE_LENGTH, DIM_PREFIX, DimCode, PlayerInfo, SeasonName, ServerMsg } from '../../server/src/protocol';
 
 export { isRoomCode } from '../../server/src/protocol';
 export type { DimCode, PlayerInfo } from '../../server/src/protocol';
 
-/** Splits a room edit key ("x,y,z", "f:x,y,z", "s:x,y,z" or "k:x,y,z") into its dimension and coordinates. */
+/** Splits a room edit key ("x,y,z", or with a dimension prefix like "f:x,y,z", see DIM_PREFIX) into its dimension and coordinates. */
 export function parseEditKey(key: string): [DimCode, number, number, number] {
-  const d: DimCode = key.startsWith('f:') ? 1 : key.startsWith('s:') ? 2 : key.startsWith('k:') ? 3 : 0;
+  const found = DIM_PREFIX.findIndex((p) => p && key.startsWith(p));
+  const d = (found > 0 ? found : 0) as DimCode;
   const [x, y, z] = (d ? key.slice(2) : key).split(',').map(Number);
   return [d, x, y, z];
 }

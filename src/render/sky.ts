@@ -232,9 +232,9 @@ export class Sky {
     this.group.position.copy(camera.position);
     this.night = Math.max(0, Math.min(1, 1 - daylight * 1.25));
     const zen = this.zen.setHex(this.palette.zenith), hor = this.hor.setHex(this.palette.horizon);
-    // Night: a deep navy zenith over a muted moonlit horizon (fog takes the horizon colour).
-    zen.lerp(this.tmpA.setHex(0x0a0f24), 1 - daylight);
-    hor.lerp(this.tmpB.setHex(0x2b3a62), 1 - daylight);
+    // Night: a near-black zenith over a dim moonlit horizon (fog takes the horizon colour).
+    zen.lerp(this.tmpA.setHex(0x05070f), 1 - daylight);
+    hor.lerp(this.tmpB.setHex(0x161d34), 1 - daylight);
     // Warm the horizon around sunrise and sunset.
     const dusk = Math.max(0, 1 - Math.abs(Math.sin(time * Math.PI * 2)) * 3.2) * (daylight > 0.12 ? 1 : 0);
     hor.lerp(this.tmpA.setHex(0xff9f7a), dusk * 0.6);

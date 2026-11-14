@@ -73,6 +73,10 @@ export const STATS: Stat[] = [
   { id: 'jump', name: '점프력', emoji: '🦘', max: 4, base: 450, step: '점프 높이 +7%' },
   { id: 'income', name: '수입', emoji: '💰', max: 5, base: 900, step: '블록당 냥 +10%' },
 ];
+/** The character's level: 1, plus one for every stat level bought (19 levels in all, so Lv 20 at most). */
+export const characterLevel = (p: Progress) => 1 + STATS.reduce((n, s) => n + p.stats[s.id], 0);
+export const MAX_LEVEL = 1 + STATS.reduce((n, s) => n + s.max, 0);
+
 /** Price of the next level: each level costs 1.8× the one before. */
 export const statPrice = (s: Stat, level: number) => Math.round((s.base * 1.8 ** level) / 10) * 10;
 

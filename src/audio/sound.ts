@@ -38,7 +38,20 @@ import spaceWav from '../../assets/sounds/space.wav';
 import storeWav from '../../assets/sounds/store.wav';
 import introWav from '../../assets/sounds/intro.wav';
 import introShortWav from '../../assets/sounds/intro_short.wav';
+import mazeWav from '../../assets/sounds/maze.wav';
+import parkingWav from '../../assets/sounds/parking.wav';
+import parkingUnderWav from '../../assets/sounds/parking_under.wav';
+import castleWav from '../../assets/sounds/castle.wav';
+import arriveValleyWav from '../../assets/sounds/arrive_valley.wav';
+import arriveFutureWav from '../../assets/sounds/arrive_future.wav';
+import arriveSpaceWav from '../../assets/sounds/arrive_space.wav';
+import arriveStoreWav from '../../assets/sounds/arrive_store.wav';
+import arriveMazeWav from '../../assets/sounds/arrive_maze.wav';
+import arriveParkingWav from '../../assets/sounds/arrive_parking.wav';
+import creakWav from '../../assets/sounds/creak.wav';
+import lampoffWav from '../../assets/sounds/lampoff.wav';
 import type { Dimension } from '../game/blocks';
+import type { Track } from '../game/zones';
 import { loadSfx, playSfx, sfxAvailable } from './sfx';
 
 // Every sound is synthesised by tools/gen_sounds.py — no samples, no third-party rights.
@@ -75,9 +88,32 @@ const FILES = {
   fail: failWav,
   gem: gemWav,
   magic: magicWav,
+  // Arriving somewhere: each place has its own sting (see tools/gen_sounds.py places).
+  arrive_valley: arriveValleyWav,
+  arrive_future: arriveFutureWav,
+  arrive_space: arriveSpaceWav,
+  arrive_store: arriveStoreWav,
+  arrive_maze: arriveMazeWav,
+  arrive_parking: arriveParkingWav,
+  /** Something in the dark worlds, somewhere you can't see. */
+  creak: creakWav,
+  /** A ceiling panel in the 노란 방 dying behind you. */
+  lampoff: lampoffWav,
 };
-const TRACKS: Record<Dimension, number> = { valley: musicWav, future: futureWav, space: spaceWav, store: storeWav };
-const TRACK_VOLUME: Record<Dimension, number> = { valley: 0.35, future: 0.3, space: 0.5, store: 0.45 };
+/** Background loops per place (a dimension, or a zone inside one; see game/zones.ts). */
+const TRACKS: Record<Track, number> = {
+  valley: musicWav, castle: castleWav, future: futureWav, space: spaceWav, store: storeWav,
+  maze: mazeWav, parking: parkingWav, parkingUnder: parkingUnderWav,
+};
+const TRACK_VOLUME: Record<Track, number> = {
+  valley: 0.35, castle: 0.45, future: 0.3, space: 0.5, store: 0.45, maze: 0.8, parking: 0.55, parkingUnder: 0.65,
+};
+/** The sting for arriving in each dimension. */
+export const ARRIVE: Record<Dimension, Sfx> = {
+  valley: 'arrive_valley', future: 'arrive_future', space: 'arrive_space', store: 'arrive_store', maze: 'arrive_maze', parking: 'arrive_parking',
+};
+/** Seconds for one track to fade into the next. */
+const FADE = 1.6;
 type FileName = keyof typeof FILES;
 export type Sfx = Exclude<FileName, 'step1' | 'step2'> | 'step';
 
@@ -86,6 +122,7 @@ const VOLUME: Record<FileName, number> = {
   portal: 0.8, thrust: 0.25, roar: 1, fire: 0.8, boom: 0.9, quake: 0.9, whoosh: 0.8, swing: 0.6, hurt: 0.8, tame: 0.7, zap: 0.75,
   coin: 0.55, coins: 0.8, cash: 1, buy: 0.85, deny: 0.6,
   drumroll: 0.8, pop: 0.8, fanfare: 0.9, fail: 0.85, gem: 0.75, magic: 0.75,
+  arrive_valley: 0.8, arrive_future: 0.8, arrive_space: 0.85, arrive_store: 0.8, arrive_maze: 1, arrive_parking: 0.9, creak: 0.7, lampoff: 0.55,
 };
 const MUTE_KEY = 'voxel-valley-go/muted';
 
@@ -109,7 +146,10 @@ class Sound {
   private pools = new Map<FileName, { players: AudioPlayer[]; next: number; used: number }>();
   private clock = 0;
   private music: AudioPlayer | null = null;
-  private track: Dimension = 'valley';
+  private track: Track = 'valley';
+  /** The track fading out, and the timer driving the fade. */
+  private fading: AudioPlayer | null = null;
+  private fadeTimer: ReturnType<typeof setInterval> | null = null;
   private loaded = false;
   /** The audio session is set up and players can be created. */
   private ready = false;
@@ -256,21 +296,62 @@ class Sound {
     } catch {}
   }
 
-  private makeMusic() {
+  /** Starts the current track; with `fade`, the old one fades out while this one fades in. */
+  private makeMusic(fade = false) {
+    if (this.fadeTimer) clearInterval(this.fadeTimer);
+    this.fadeTimer = null;
+    try { this.fading?.remove(); } catch {}
+    this.fading = null;
+    const old = this.music;
+    const target = TRACK_VOLUME[this.track];
     try {
-      this.music?.remove();
-    } catch {}
-    this.music = createAudioPlayer(TRACKS[this.track]);
+      this.music = createAudioPlayer(TRACKS[this.track]);
+    } catch (e) {
+      console.warn('music unavailable', e);
+      this.music = null;
+      try { old?.remove(); } catch {}
+      return;
+    }
     this.music.loop = true;
-    this.music.volume = TRACK_VOLUME[this.track];
-    if (this.musicWanted && !this.muted) this.music.play();
+    const playing = this.musicWanted && !this.muted;
+    if (!fade || !old || !playing) {
+      try { old?.remove(); } catch {}
+      this.music.volume = target;
+      if (playing) this.music.play();
+      return;
+    }
+    // Crossfade: places blend into each other instead of cutting.
+    const next = this.music;
+    const from = old.volume;
+    next.volume = 0;
+    next.play();
+    this.fading = old;
+    const t0 = Date.now();
+    this.fadeTimer = setInterval(() => {
+      const u = Math.min(1, (Date.now() - t0) / (FADE * 1000));
+      try {
+        next.volume = target * u;
+        old.volume = from * (1 - u);
+      } catch {}
+      if (u >= 1) {
+        if (this.fadeTimer) clearInterval(this.fadeTimer);
+        this.fadeTimer = null;
+        try { old.remove(); } catch {}
+        if (this.fading === old) this.fading = null;
+      }
+    }, 50);
   }
 
-  /** Background music for the dimension you're in. */
-  setTrack(dim: Dimension) {
-    if (dim === this.track) return;
-    this.track = dim;
-    if (this.loaded) this.makeMusic();
+  /** Background music for where you are: a dimension, or a zone inside one (game/zones.ts). */
+  setTrack(track: Track) {
+    if (track === this.track) return;
+    this.track = track;
+    if (this.loaded && this.ready) this.makeMusic(true);
+  }
+
+  /** The arrival sting for a dimension, a moment after the portal swirl. */
+  arrive(dim: Dimension) {
+    setTimeout(() => this.play(ARRIVE[dim]), 350);
   }
 
   startMusic() {
@@ -281,7 +362,7 @@ class Sound {
 
   stopMusic() {
     this.musicWanted = false;
-    try { this.music?.pause(); } catch {}
+    try { this.music?.pause(); this.fading?.pause(); } catch {}
   }
 
   /**

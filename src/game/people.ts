@@ -8,7 +8,9 @@
  */
 
 /** How a figure is built (see VoxelRenderer.makeGoof). */
-export type Look = 'me' | 'beard' | 'glasses' | 'kid' | 'phone' | 'barcode';
+export type Look = 'me' | 'beard' | 'glasses' | 'kid' | 'phone' | 'barcode' | GuideLook;
+/** The guides at the dark gate (see GUIDES below and game/guides.ts). */
+export type GuideLook = 'lantern' | 'shield' | 'medic' | 'scout';
 
 export type Persona = {
   look: Look;
@@ -118,8 +120,75 @@ export const PEOPLE: Persona[] = [
   },
 ];
 
+/*
+ * The guides: four supporters who stand in front of the dark gate and get you started. Each one
+ * stands for a role a team will need once worlds become team quests (길잡이, 수호자, 치유사,
+ * 정찰대원). All original characters.
+ */
+const DARK_HINT = '저 자개 문으로 걸어 들어가면 바로 시작이야. 안은 끝없는 노란 방—아무도 없는 사무실이 미로처럼 이어져. 초록 비상구 불빛을 찾아.';
+const GUIDE_COMMON: Persona['rules'] = [
+  { re: /시작|처음|어떻게|방법|뭐\s*해야|뭘\s*해/, say: [DARK_HINT, '첫 퀘스트는 간단해. 노란 방을 지나서 주차장까지 가는 것. 길은 하나가 아니야.'] },
+  { re: /팀|친구|같이|파티|멀티|함께/, say: ['☰ 메뉴에서 방을 만들어 친구를 불러. 같은 방이면 같은 미로에서 만나. 미로 모양도 똑같아.', '앞으로 세계마다 팀을 짜서 퀘스트를 깨게 될 거야. 길잡이, 수호자, 치유사, 정찰대원… 역할을 나눠 봐.'] },
+  { re: /주차장|차|지하|옥상|층/, say: ['미로 맨 끝, 초록 불 아래 문 너머가 끝없는 주차장이야. 지하 4층부터 옥상까지 경사로로 이어져.', '주차장 기둥은 층마다 색이 달라. 길을 잃으면 기둥 색을 봐.'] },
+  { re: /무서|겁|공포|무섭|싫어/, say: ['무서우면 돌아 나와도 돼. 들어간 문은 늘 그 자리에 있어.', '혼자가 무서우면 친구랑 와. 그러라고 우리가 여기 서 있는 거야.'] },
+  { re: /안에|뭐가\s*있|뭐\s*있|어떤\s*곳|어디/, say: ['아무것도 없어. 노란 벽지, 눅눅한 카펫, 웅웅거리는 형광등… 끝없이 이어지는 빈 사무실뿐이야.', '이상한 건, 지나온 형광등이 하나씩 꺼진다는 거야. 뒤돌아보면 깜깜해.'] },
+  { re: /퀘스트|임무|미션|목표/, say: ['지금 열린 퀘스트: 노란 방 → 끝없는 주차장. 다음 세계는 곧 열려.', '퀘스트는 혼자도 되지만, 팀이면 훨씬 빨라.'] },
+  { re: /길|미로|출구|비상구|못\s*찾/, say: ['한쪽 손으로 벽을 짚고 계속 따라가 봐. 언젠간 나와.', '초록 불빛이 천장에 보이면 거의 다 온 거야.'] },
+  { re: /조작|움직|이동|걷/, say: ['왼쪽 아래를 밀면 걸어가. 화면을 끌면 둘러보고.', '양탄자를 타도 그 낮은 천장은 못 뚫어. 걸어서 찾아야 해.'] },
+  { re: /안녕|하이|ㅎㅇ|반가/, say: ['어서 와. 저 문 너머가 궁금하지?'] },
+  { re: /잘\s*가|바이|빠이|안녕히|그만/, say: ['조심히 다녀와.', '불빛을 잃지 마.'] },
+];
+
+export const GUIDES: Persona[] = [
+  {
+    look: 'lantern', name: '등불지기 달래', emoji: '🏮', color: 0x2a2f4a, speed: 1.6, follow: 0,
+    voice: { pitch: 0.95, rate: 0.95 }, about: '길잡이. 등불 하나로 저 안을 백 번 넘게 다녀왔다.',
+    greet: ['왔구나. 저 문 너머가 노란 방이야. 준비되면 말해.', '등불 하나면 충분해. …라고 말하고 싶지만, 친구가 있으면 더 좋아.'],
+    rules: [
+      { re: /등불|불|빛|랜턴/, say: ['이 등불은 안에선 안 켜져. 그래서 내가 여기 서 있는 거야.'] },
+      { re: /누구|이름|정체/, say: ['나는 달래. 길잡이야. 길을 알려 주는 게 내 일이지.'] },
+    ],
+    idle: ['…안에서 무슨 소리 들리지 않았어?', '천천히 가. 서두르면 같은 곳만 돌아.', '준비되면 문으로 걸어 들어가.'],
+    chips: ['어떻게 시작해요?', '퀘스트가 뭐예요?', '팀은 어떻게 짜요?', '무서워요'],
+  },
+  {
+    look: 'shield', name: '수호자 단단이', emoji: '🛡️', color: 0x7a5a3a, speed: 1.4, follow: 0,
+    voice: { pitch: 0.7, rate: 0.9 }, about: '수호자. 팀 맨 앞에 서서 모두를 지킨다.',
+    greet: ['맨 앞은 내가 선다. 따라와.', '흠. 혼자 갈 생각인가? 용감하군.'],
+    rules: [
+      { re: /방패|지켜|수호|탱/, say: ['팀이 생기면 내가 맨 앞이다. 넌 뒤에서 길을 봐.'] },
+      { re: /누구|이름|정체/, say: ['단단이. 이름처럼 단단하지.'] },
+    ],
+    idle: ['…', '이 방패, 생각보다 무겁다.', '흠.'],
+    chips: ['팀은 어떻게 짜요?', '저 안에 뭐가 있어요?', '무서워요', '안녕!'],
+  },
+  {
+    look: 'medic', name: '치유사 보듬', emoji: '🩹', color: 0xf4f6f8, speed: 1.8, follow: 0,
+    voice: { pitch: 1.15, rate: 1.0 }, about: '치유사. 다친 사람은 끝까지 챙긴다.',
+    greet: ['다친 데는 없지? 들어가기 전에 숨 한번 크게 쉬어.', '안은 많이 어두워. 놀라도 괜찮아, 다들 놀라.'],
+    rules: [
+      { re: /아파|다쳐|체력|피|회복|치료/, say: ['체력은 가만히 있으면 조금씩 돌아와. 용암만 조심해.', '팀이 생기면 내가 뒤에서 챙길게.'] },
+      { re: /누구|이름|정체/, say: ['보듬이야. 보듬어 주는 게 내 일.'] },
+    ],
+    idle: ['물 마셨어?', '천천히, 천천히.', '혼자 가지 말라니까~'],
+    chips: ['무서워요', '팀은 어떻게 짜요?', '어떻게 시작해요?', '안녕!'],
+  },
+  {
+    look: 'scout', name: '정찰대원 살핌', emoji: '🔦', color: 0x4a6a3a, speed: 2.4, follow: 0,
+    voice: { pitch: 1.05, rate: 1.12 }, about: '정찰대원. 먼저 들어가 길을 보고 온다.',
+    greet: ['나 방금 주차장까지 갔다 왔어! 지하 4층은… 진짜 어두워.', '미로 지도? 그런 건 없어. 근데 요령은 있지.'],
+    rules: [
+      { re: /지도|요령|팁|힌트/, say: ['초록 불빛! 그게 다야. 그리고 TV 켜진 막다른 길은 그냥 막다른 길이야.', '큰 방이 나오면 잠깐 서서 문이 몇 개인지 세 봐.'] },
+      { re: /누구|이름|정체/, say: ['살핌! 이마에 불 달린 사람.'] },
+    ],
+    idle: ['쉿, 들어 봐.', '주차장 옥상에서 보면 도시가 다 꺼져 있어.', '난 벌써 다녀왔지롱.'],
+    chips: ['길 찾는 요령 있어요?', '주차장은 어때요?', '저 안에 뭐가 있어요?', '안녕!'],
+  },
+];
+for (const g of GUIDES) g.rules.push(...GUIDE_COMMON);
+
 /** A bot's persona by its look ('me' has none). */
-export const personaOf = (look: Look | undefined) => PEOPLE.find((p) => p.look === look);
+export const personaOf = (look: Look | undefined) => PEOPLE.find((p) => p.look === look) ?? GUIDES.find((p) => p.look === look);
 
 const pick = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
 

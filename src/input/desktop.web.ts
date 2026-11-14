@@ -10,9 +10,14 @@ export type { DesktopActions, DesktopKey, DesktopState } from './desktop';
  * 1–5 weapon slots, Q previous weapon, R reload, Tab scoreboard, [ ] mouse speed, F special.
  *
  *   mouse            look (pointer lock: click the game to capture, Esc to let go)
- *   W A S D / arrows walk · fly        Space  jump / rise
- *   Shift            walk (slow, no footsteps) · sink while flying
+ *   arrows           look, for playing without a mouse
+ *   W A S D          walk · fly        Space · Enter  jump / rise (press again in mid-air: double jump)
+ *   Shift            place the selected block at the crosshair (any tool in hand)
+ *   ⌘ + Shift (Mac) · Ctrl + Shift (Windows)   hold: break the block at the crosshair (any tool)
+ *   Alt              walk (slow, no footsteps)
  *   Ctrl · C         crouch · sink while flying
+ *   Esc              let the mouse go (the "continue" card)
+ *   ⌘ + Enter (Mac) · Ctrl + Enter (Windows)   window ↔ fullscreen, only when pressed together
  *   left button      wand: hold and sweep to mark blocks · block: dig · blade: strike
  *   right button     wand: 💥 break the marked blocks · block: place
  *   1 wand  2 blocks (again: next block)  3 blade  4 🐉 dragon  5 💥 · wheel: next / previous
@@ -32,15 +37,44 @@ const KEYS: Record<string, DesktopKey> = {
   KeyQ: 'prev', KeyR: 'reload', BracketLeft: 'sensDown', BracketRight: 'sensUp',
 };
 const SHIFT = ['ShiftLeft', 'ShiftRight'];
+/** The "command" key for the break / fullscreen combos: ⌘ on a Mac, Ctrl elsewhere. */
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const CMD = IS_MAC ? ['MetaLeft', 'MetaRight'] : ['ControlLeft', 'ControlRight'];
+const cmdHeld = (e: KeyboardEvent) => (IS_MAC ? e.metaKey : e.ctrlKey);
+const ALT = ['AltLeft', 'AltRight'];
+const JUMP = ['Space', 'Enter', 'NumpadEnter'];
+/** Arrow keys turn the view (radians per second), so the game plays without a mouse. */
+const TURN_YAW = 2.4, TURN_PITCH = 1.5;
+/** Window ↔ fullscreen choice, kept between visits. */
+const FULL_KEY = 'vv-fullscreen';
+const setWantsFull = (on: boolean) => { try { localStorage.setItem(FULL_KEY, on ? '1' : '0'); } catch {} };
+type FullDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+const fullEl = () => document.fullscreenElement ?? (document as FullDoc).webkitFullscreenElement ?? null;
+const enterFull = () => {
+  const root = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+  try {
+    const r = root.requestFullscreen?.({ navigationUI: 'hide' });
+    if (r) r.catch(() => {});
+    else root.webkitRequestFullscreen?.();
+  } catch {}
+};
+const exitFull = () => {
+  try {
+    const r = document.exitFullscreen?.();
+    if (r) r.catch(() => {});
+    else (document as FullDoc).webkitExitFullscreen?.();
+  } catch {}
+};
 /**
  * Keys the page takes over in fullscreen (Keyboard Lock, Chrome/Edge), so browser shortcuts that
  * share a game key can't fire: Ctrl+W/T/N/Q/R/D/S/F/P while crouching, Tab, Alt (Windows menu bar),
- * F1/F3/F5/F7. Escape is left out on purpose: one press still frees the mouse and exits fullscreen.
+ * F1/F3/F5/F7. Escape too, like a PC game: a press opens the "continue" card and fullscreen stays
+ * (the browser still leaves fullscreen when Esc is held down). ⌘/Ctrl/Alt + Enter switches to a window.
  */
 const LOCK_KEYS = [
   ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((c) => `Key${c}`),
   ...'0123456789'.split('').map((d) => `Digit${d}`),
-  'Space', 'Tab', 'Enter', 'Backspace', 'BracketLeft', 'BracketRight', 'Backquote', 'Minus', 'Equal',
+  'Escape', 'Space', 'Tab', 'Enter', 'NumpadEnter', 'Backspace', 'BracketLeft', 'BracketRight', 'Backquote', 'Minus', 'Equal',
   'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8',
 ];
@@ -71,14 +105,7 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     (document.activeElement as HTMLElement | null)?.blur?.();
     // Fullscreen is part of playing: the game fills the screen and (Chrome/Edge) gets every key.
     // Ignored where the browser refuses (in-app browsers): the game still plays in the window.
-    const root = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-    if (!document.fullscreenElement) {
-      try {
-        const r = root.requestFullscreen?.({ navigationUI: 'hide' });
-        if (r) r.catch(() => {});
-        else root.webkitRequestFullscreen?.();
-      } catch {}
-    }
+    // Fullscreen is no longer entered by clicking: only ⌘ + Enter / Ctrl + Enter switches it.
     const el = document.body as HTMLElement & { requestPointerLock?: (o?: { unadjustedMovement?: boolean }) => Promise<void> | void };
     const fallback = () => { if (!document.pointerLockElement) setSoft(true); };
     const plain = () => {
@@ -136,36 +163,78 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     if (!enabled) return;
     const a = () => actions.current!;
     const held = new Set<string>();
+    let mouseDown = false;
+    const attack = () => a().primary(mouseDown);
+    // Arrow keys: turn the view a little every frame while held.
+    let turnFrame = 0, turnAt = 0;
+    const turning = () => ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].some((k) => held.has(k));
+    const turnStep = (now: number) => {
+      if (!turning()) { turnFrame = 0; return; }
+      const dt = Math.min(0.05, (now - turnAt) / 1000);
+      turnAt = now;
+      const yaw = (held.has('ArrowLeft') ? 1 : 0) - (held.has('ArrowRight') ? 1 : 0);
+      const pitch = (held.has('ArrowUp') ? 1 : 0) - (held.has('ArrowDown') ? 1 : 0);
+      if (dt > 0) a().turn(yaw * TURN_YAW * dt, pitch * TURN_PITCH * dt);
+      turnFrame = requestAnimationFrame(turnStep);
+    };
     const applyMove = () => {
-      const f = (held.has('KeyW') || held.has('ArrowUp') ? 1 : 0) - (held.has('KeyS') || held.has('ArrowDown') ? 1 : 0);
-      const r = (held.has('KeyD') || held.has('ArrowRight') ? 1 : 0) - (held.has('KeyA') || held.has('ArrowLeft') ? 1 : 0);
+      const f = (held.has('KeyW') ? 1 : 0) - (held.has('KeyS') ? 1 : 0);
+      const r = (held.has('KeyD') ? 1 : 0) - (held.has('KeyA') ? 1 : 0);
       const len = Math.hypot(f, r) || 1;
       a().move(r / len, f / len);
-      a().jump(held.has('Space'));
-      const walk = SHIFT.some((k) => held.has(k)), crouch = CROUCH.some((k) => held.has(k));
-      a().down(walk || crouch);
+      a().jump(JUMP.some((k) => held.has(k)));
+      // ⌘/Ctrl + Shift held breaks (on Windows that Ctrl doesn't also crouch).
+      const breaking = SHIFT.some((k) => held.has(k)) && CMD.some((k) => held.has(k));
+      a().dig(breaking);
+      const walk = ALT.some((k) => held.has(k)), crouch = CROUCH.some((k) => held.has(k)) && !breaking;
+      a().down(crouch);
       a().stance(walk, crouch);
+      attack();
+      if (turning() && !turnFrame) { turnAt = performance.now(); turnFrame = requestAnimationFrame(turnStep); }
     };
     const releaseAll = () => {
       held.clear();
+      mouseDown = false;
       applyMove();
       a().primary(false);
       a().board(false);
+    };
+    /** Set while ⌘/Ctrl/Alt + Enter leaves fullscreen, so play carries on in the window. */
+    let toWindow = false;
+    const toggleFull = () => {
+      if (fullEl()) { setWantsFull(false); toWindow = true; exitFull(); }
+      else { setWantsFull(true); enterFull(); }
     };
     const isLocked = () => !!document.pointerLockElement || soft.current;
     const typing = (e: Event) => (e.target as HTMLElement | null)?.tagName === 'INPUT';
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (typing(e)) return;
-      if (e.code === 'Escape' && soft.current) { setSoft(false); releaseAll(); return; }
+      // Window ↔ fullscreen only for ⌘ + Enter (Mac) / Ctrl + Enter (Windows) pressed together.
+      if ((e.code === 'Enter' || e.code === 'NumpadEnter') && cmdHeld(e) && !e.altKey) {
+        e.preventDefault();
+        if (!e.repeat) toggleFull();
+        return;
+      }
+      if (e.code === 'Escape') {
+        // A pause, not a quit: the mouse is let go and the "continue" card shows; fullscreen stays
+        // where the browser allows it (Chrome/Edge keyboard lock).
+        if (soft.current) setSoft(false);
+        if (document.pointerLockElement) document.exitPointerLock();
+        releaseAll();
+        return;
+      }
       if (SWALLOW.has(e.code)) e.preventDefault();
       // Mid-game every key is the game's: no Ctrl+S save, Ctrl+D bookmark, Ctrl+F find, Alt menu,
       // Space scrolling or "clicking" a focused button. (Ctrl+W / Ctrl+T can only be stopped in
       // fullscreen: see the keyboard lock below.)
       if (isLocked() && !PASS.has(e.code)) e.preventDefault();
       a().poke();
-      if (e.repeat) return;
+      // (Re-added on key repeat too: a Mac drops key-ups while ⌘ is held, see onKeyUp.)
       held.add(e.code);
+      if (e.repeat) return;
+      // Shift on its own places a block; with ⌘/Ctrl it breaks instead (applyMove).
+      if (SHIFT.includes(e.code) && !cmdHeld(e)) a().place();
       applyMove();
       if (e.code === 'Tab') a().board(true);
       const digit = /^Digit([1-9])$/.exec(e.code);
@@ -175,6 +244,11 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     };
     const onKeyUp = (e: KeyboardEvent) => {
       held.delete(e.code);
+      // macOS sends no key-up for keys released while ⌘ was down, so letting go of ⌘ drops every
+      // non-modifier key; anything still held comes back with its next key repeat.
+      if (IS_MAC && (e.code === 'MetaLeft' || e.code === 'MetaRight')) {
+        for (const k of [...held]) if (!/^(Shift|Control|Alt|Meta)/.test(k)) held.delete(k);
+      }
       applyMove();
       if (e.code === 'Tab') a().board(false);
     };
@@ -183,15 +257,17 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     type KeyboardLock = { lock?: (codes?: string[]) => Promise<void>; unlock?: () => void };
     const kb = (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard;
     const onFullscreen = () => {
-      if (document.fullscreenElement) kb?.lock?.(LOCK_KEYS).catch(() => {});
+      if (fullEl()) kb?.lock?.(LOCK_KEYS).catch(() => {});
       else {
         kb?.unlock?.();
-        // Leaving fullscreen (Esc) leaves the game too: the "click to play" card comes back.
+        // ⌘/Ctrl/Alt + Enter: keep playing in the window. Leaving any other way (Esc held, the
+        // browser's own button) leaves the game too: the "continue" card comes back.
+        if (toWindow) { toWindow = false; return; }
         if (document.pointerLockElement) document.exitPointerLock();
         if (soft.current) { setSoft(false); releaseAll(); }
       }
     };
-    if (document.fullscreenElement) onFullscreen();
+    if (fullEl()) onFullscreen();
     const onMouseMove = (e: MouseEvent) => {
       if (!isLocked()) return;
       // Some browsers report a huge jump right as the lock engages; ignore those.
@@ -202,11 +278,11 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
       if (!isLocked()) return;
       e.preventDefault();
       a().poke();
-      if (e.button === 0) a().primary(true);
+      if (e.button === 0) { mouseDown = true; attack(); }
       else if (e.button === 2) a().secondary();
     };
     const onMouseUp = (e: MouseEvent) => {
-      if (e.button === 0) a().primary(false);
+      if (e.button === 0) { mouseDown = false; attack(); }
     };
     const onWheel = (e: WheelEvent) => {
       if (!isLocked() || !e.deltaY) return;
@@ -230,8 +306,11 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     document.addEventListener('contextmenu', onContext);
     document.addEventListener('pointerlockchange', onLockChange);
     document.addEventListener('fullscreenchange', onFullscreen);
+    document.addEventListener('webkitfullscreenchange', onFullscreen);
     return () => {
       document.removeEventListener('fullscreenchange', onFullscreen);
+      document.removeEventListener('webkitfullscreenchange', onFullscreen);
+      if (turnFrame) cancelAnimationFrame(turnFrame);
       kb?.unlock?.();
       releaseAll();
       window.removeEventListener('keydown', onKeyDown);

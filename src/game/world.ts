@@ -1,5 +1,6 @@
-import { Block, BLOCKS, Dimension, isReplaceable, Season } from './blocks';
+import { Block, BLOCKS, Dimension, isReplaceable } from './blocks';
 import { CITY_GROUND, futureStructures, generateFuture, generateSpace, generateStore, Placed, spaceStructures, STORE_GROUND, storeStructures, valleyStructures } from './dimensions';
+import { generateMaze, generateParking, MAZE_CEIL, mazeStructures, PARK_GROUND, parkingStructures } from './darkworlds';
 import { Noise } from './noise';
 import { depositAt } from './treasure';
 
@@ -44,14 +45,13 @@ export class World {
   private lastKeyZ = NaN;
   private lastChunk: Chunk | null = null;
 
-  /** The block that covers the ground this season. */
-  readonly ground: Block;
+  /** The block that covers the ground. */
+  readonly ground = Block.Moss;
 
   private structures: Map<string, Placed[]> | null = null;
 
-  constructor(readonly seed: number, readonly season: Season = 'summer', readonly dim: Dimension = 'valley') {
+  constructor(readonly seed: number, readonly dim: Dimension = 'valley') {
     this.noise = new Noise(seed);
-    this.ground = season === 'winter' ? Block.Snow : season === 'autumn' ? Block.DryGrass : Block.Moss;
   }
 
   surfaceHeight(x: number, z: number): number {
@@ -117,7 +117,7 @@ export class World {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           const px = x + dx, pz = z + dz;
           // In the city, stand on the street rather than a rooftop.
-          let y = this.dim === 'future' ? CITY_GROUND : this.dim === 'store' ? STORE_GROUND : HEIGHT - 2;
+          let y = this.dim === 'future' ? CITY_GROUND : this.dim === 'store' ? STORE_GROUND : this.dim === 'maze' ? MAZE_CEIL - 1 : this.dim === 'parking' ? PARK_GROUND + 2 : HEIGHT - 2;
           while (y > 0 && !this.isSolid(px, y, pz)) y--;
           const ground = this.get(px, y, pz);
           const okGround = this.dim === 'valley' ? ground === this.ground || ground === Block.Sand : BLOCKS[ground].solid;
@@ -136,7 +136,7 @@ export class World {
   private structuresIn(cx: number, cz: number): Placed[] {
     if (!this.structures) {
       this.structures = new Map();
-      const all = this.dim === 'future' ? futureStructures() : this.dim === 'space' ? spaceStructures() : this.dim === 'store' ? storeStructures() : valleyStructures(this);
+      const all = this.dim === 'future' ? futureStructures() : this.dim === 'space' ? spaceStructures() : this.dim === 'store' ? storeStructures() : this.dim === 'maze' ? mazeStructures(this.seed) : this.dim === 'parking' ? parkingStructures() : valleyStructures(this);
       for (const p of all) {
         const key = chunkKey(toChunk(p[0]), toChunk(p[2]));
         const list = this.structures.get(key) ?? [];
@@ -152,6 +152,8 @@ export class World {
     if (this.dim === 'future') generateFuture(this, c);
     else if (this.dim === 'space') generateSpace(this, c);
     else if (this.dim === 'store') generateStore(this, c);
+    else if (this.dim === 'maze') generateMaze(this, c);
+    else if (this.dim === 'parking') generateParking(this, c);
     else this.generateValley(c);
     for (const [x, y, z, b] of this.structuresIn(cx, cz)) c.set(mod(x, CHUNK), y, mod(z, CHUNK), b);
     // Re-apply player edits for this chunk.
@@ -175,17 +177,9 @@ export class World {
           c.set(lx, y, lz, b);
         }
         for (let y = top + 1; y <= SEA_LEVEL; y++) c.set(lx, y, lz, Block.Water);
-        // Winter freezes the surface of lakes and the sea.
-        if (this.season === 'winter' && top < SEA_LEVEL) c.set(lx, SEA_LEVEL, lz, Block.Ice);
       }
     }
     this.plantTrees(c);
-  }
-
-  private leafFor(r: number): Block {
-    if (this.season === 'spring') return r < 0.75 ? Block.Blossom : Block.Leaf;
-    if (this.season === 'autumn') return r < 0.75 ? Block.Maple : Block.Leaf;
-    return Block.Leaf;
   }
 
   /** Round, puffy trees that always fit inside their chunk. */
@@ -193,10 +187,10 @@ export class World {
     for (let lx = 3; lx <= CHUNK - 4; lx++) {
       for (let lz = 3; lz <= CHUNK - 4; lz++) {
         const wx = c.cx * CHUNK + lx, wz = c.cz * CHUNK + lz;
-        if (this.noise.hash01(wx, wz, 101) > (this.season === 'summer' ? 0.024 : 0.015)) continue;
+        if (this.noise.hash01(wx, wz, 101) > 0.024) continue;
         const g = this.surfaceHeight(wx, wz);
         if (c.get(lx, g, lz) !== this.ground) continue;
-        const leaf = this.leafFor(this.noise.hash01(wx, wz, 303));
+        const leaf = Block.Leaf;
         const trunk = 3 + Math.floor(this.noise.hash01(wx, wz, 202) * 2);
         if (g + trunk + 4 >= HEIGHT) continue;
         for (let y = 1; y <= trunk; y++) c.set(lx, g + y, lz, Block.Wood);
@@ -207,16 +201,6 @@ export class World {
               if (dx * dx + dy * dy * 1.6 + dz * dz > 5.2) continue; // ball-ish canopy
               if (c.get(lx + dx, cy + dy, lz + dz) === Block.Air) c.set(lx + dx, cy + dy, lz + dz, leaf);
             }
-        if (this.season === 'winter') {
-          // A cap of snow on each canopy column.
-          for (let dx = -2; dx <= 2; dx++)
-            for (let dz = -2; dz <= 2; dz++)
-              for (let y = cy + 2; y >= cy - 2; y--)
-                if (c.get(lx + dx, y, lz + dz) === leaf) {
-                  c.set(lx + dx, y, lz + dz, Block.Snow);
-                  break;
-                }
-        }
       }
     }
   }

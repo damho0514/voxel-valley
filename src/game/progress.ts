@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { freshProgress, normalize, Progress } from './economy';
 
 /*
- * The player's wallet and purchases, kept on this phone across worlds, seasons and rooms.
+ * The player's wallet and purchases, kept on this phone across worlds and rooms.
  * A tiny observable store: the game loop reads `progress.get()`, React subscribes with useProgress.
  */
 

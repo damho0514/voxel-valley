@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type { ExpoWebGLRenderingContext } from 'expo-gl';
 import { Platform } from 'react-native';
-import type { Dimension, Season } from '../game/blocks';
+import type { Dimension } from '../game/blocks';
 import { buildChunkMesh, MeshArrays } from '../game/mesher';
 import { time } from '../game/prof';
 import { CHUNK, chunkKey, toChunk, World } from '../game/world';
 import { BLACK_HOLE, CITY_GROUND } from '../game/dimensions';
+import { MAZE_CEIL, mazeLamps, PARK_GROUND } from '../game/darkworlds';
 import { BlackHole } from './blackhole';
 import { Dragon } from './dragon';
 import { BreakEffects } from './effects';
@@ -15,12 +16,9 @@ import { DriftField, DriftSpec, Sparks } from './sparks';
 import { Sky } from './sky';
 import { blockAtlas, glowTexture, waterTexture } from './textures';
 
-const SKY_PALETTE: Record<Season | 'future' | 'store', { zenith: number; horizon: number }> = {
+const SKY_PALETTE: Record<'valley' | 'future' | 'store', { zenith: number; horizon: number }> = {
   store: { zenith: 0x0b1030, horizon: 0x2a2a58 },
-  spring: { zenith: 0x74b3ea, horizon: 0xf6e3ef },
-  summer: { zenith: 0x3f95e0, horizon: 0xcde9f8 },
-  autumn: { zenith: 0x6a98c8, horizon: 0xf5d8b6 },
-  winter: { zenith: 0x93b0c8, horizon: 0xeaf0f4 },
+  valley: { zenith: 0x3f95e0, horizon: 0xcde9f8 },
   future: { zenith: 0x4a5ea6, horizon: 0xd0c6ec },
 };
 
@@ -120,14 +118,62 @@ const CAR_COLORS = [0xff6f91, 0x5ff2ff, 0xffd166, 0xa47bff, 0xf4f7fb, 0x7cf29c];
 // Colours in this game are authored as plain sRGB values and shown as-is.
 THREE.ColorManagement.enabled = false;
 
-const SKY: Record<Season, number> = { spring: 0xd4e8f6, summer: 0xaedcf4, autumn: 0xf0dcc0, winter: 0xdfe8ef };
+const SKY_VALLEY = 0xaedcf4;
+/** The colour of nothing: the maze's clear colour and fog. */
+/** 노란 방: what's past the light — a dark the colour of old, damp carpet. */
+const MAZE_VOID = 0x0b0904;
+/** How many of the nearest ceiling panels light the 노란 방 at once (the rest are lost in the dark anyway). */
+const LAMP_SLOTS = 10;
+/** A panel wakes (and brightens a little) when you come this close, and dies once you are this far past it. */
+const LAMP_NEAR = 6;
+const LAMP_GONE = 12;
 
-/** Falling petals / leaves / snow per season (summer stays clear). */
-const WEATHER: Record<Season, DriftSpec | null> = {
-  spring: { color: 0xf7b6cf, size: 0.16, fall: 0.9, sway: 0.5, count: 320, box: 24 },
-  summer: null,
-  autumn: { color: 0xe8894a, size: 0.18, fall: 1.2, sway: 0.6, count: 240, box: 24 },
-  winter: { color: 0xffffff, size: 0.12, fall: 1.6, sway: 0.3, count: 600, box: 24 },
+/**
+ * Patches a block material so that, in the 노란 방, it is lit only by the nearest ceiling panels:
+ * each panel throws a warm pool of light that falls off with distance, over a near-black ambient.
+ * On the glow material it instead dims each panel's own surface with its light.
+ */
+function litByLamps(mat: THREE.MeshBasicMaterial, u: Record<string, THREE.IUniform>, glow: boolean) {
+  mat.customProgramCacheKey = () => (glow ? 'lamps-glow' : 'lamps');
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = 'varying vec3 vLampW;\n' + shader.vertexShader.replace('#include <project_vertex>',
+      '#include <project_vertex>\n  vLampW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    const lit = glow
+      ? `if (uMaze > 0.5 && vLampW.y > uCeil - 0.05) {
+    float on = 0.05;
+    for (int i = 0; i < ${LAMP_SLOTS}; i++) {
+      vec3 d = uLamps[i].xyz - vLampW; d.y = 0.0;
+      on = max(on, uLamps[i].w * (1.0 - smoothstep(3.4, 4.4, dot(d, d))));
+    }
+    // A lit panel burns near-white (and blooms); a dead one is a grey slab.
+    diffuseColor.rgb *= min(1.15, on * 1.6);
+  }`
+      : `if (uMaze > 0.5) {
+    vec3 acc = vec3(0.03, 0.026, 0.016);
+    for (int i = 0; i < ${LAMP_SLOTS}; i++) {
+      vec3 d = uLamps[i].xyz - vLampW;
+      acc += vec3(1.0, 0.92, 0.66) * uLamps[i].w / (1.0 + dot(d, d) * 0.085);
+    }
+    diffuseColor.rgb *= min(acc, vec3(1.3));
+  }`;
+    shader.fragmentShader = `uniform float uMaze;\nuniform float uCeil;\nuniform vec4 uLamps[${LAMP_SLOTS}];\nvarying vec3 vLampW;\n`
+      + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n  ${lit}`);
+  };
+}
+
+type Lamp = { x: number; y: number; z: number; exit: boolean; s: number; seen: boolean; dead: boolean; dying: number };
+
+/**
+ * The game's one look: every map is lit as a dark, moonlit night. `d` is the daylight the renderer
+ * uses (0.25 = deepest night), `time` where the moon sits, `dim` an extra darkening of every block.
+ * Dimensions not listed here (the maze, the parking garage) bring their own lighting.
+ */
+const DARK: Partial<Record<Dimension, { d: number; time: number; dim: number }>> = {
+  valley: { d: 0.25, time: 0.8, dim: 0.62 },
+  future: { d: 0.25, time: 0.8, dim: 0.62 },
+  store: { d: 0.25, time: 0.86, dim: 0.66 },
+  space: { d: 0.3, time: 0.8, dim: 0.66 },
 };
 /** Golden motes that drift around you after dark (and faintly at dusk). */
 const FIREFLIES: DriftSpec = { color: 0xffcf6a, size: 0.13, fall: -0.12, sway: 0.5, count: 150, box: 26, glow: true, opacity: 0.9 };
@@ -209,6 +255,12 @@ export class VoxelRenderer {
   private readonly waterMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.waterTex, transparent: true, opacity: 0.78, depthWrite: false, side: THREE.DoubleSide });
   // Lit blocks (windows, neon, lava, crystals) ignore fog: their light carries across the valley at night.
   private readonly glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.atlas, fog: false });
+  /** Shared by the block materials' 노란 방 lighting (see litByLamps). */
+  private readonly lampU = {
+    uMaze: { value: 0 },
+    uCeil: { value: MAZE_CEIL },
+    uLamps: { value: Array.from({ length: LAMP_SLOTS }, () => new THREE.Vector4()) },
+  };
   private readonly portalMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.atlas, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide });
   private readonly glassMat = new THREE.MeshBasicMaterial({ vertexColors: true, map: this.atlas, transparent: true, depthWrite: false, side: THREE.DoubleSide });
   private readonly sky: Sky;
@@ -226,7 +278,7 @@ export class VoxelRenderer {
   private readonly highlight: THREE.LineSegments;
   private readonly avatars = new Map<string, THREE.Group>();
   private daylight = 1;
-  private skyDay = new THREE.Color(SKY.summer);
+  private skyDay = new THREE.Color(SKY_VALLEY);
   private weather: DriftField | null = null;
   private readonly fireflies = new DriftField(FIREFLIES);
   /** Magic sparks (breaking, the wand, treasure). */
@@ -255,6 +307,8 @@ export class VoxelRenderer {
     this.post = new PostFX(w, h);
     this.sparks = new Sparks(this.scene);
     this.scene.add(this.fireflies.points);
+    litByLamps(this.solidMat, this.lampU, false);
+    litByLamps(this.glowMat, this.lampU, true);
     this.effects = new BreakEffects(this.scene, (x, y, z) => this.world.isSolid(x, y, z));
 
     this.highlight = new THREE.LineSegments(
@@ -311,16 +365,6 @@ export class VoxelRenderer {
     return { x: v.x, y: v.y, z: v.z };
   }
 
-  /** Sky tint and falling particles for the world's season. */
-  setSeason(season: Season) {
-    this.skyDay = new THREE.Color(SKY[season]);
-    this.dropWeather();
-    const spec = WEATHER[season];
-    if (!spec) return;
-    this.weather = new DriftField(spec);
-    this.scene.add(this.weather.points);
-  }
-
   private dropWeather() {
     if (!this.weather) return;
     this.scene.remove(this.weather.points);
@@ -341,7 +385,7 @@ export class VoxelRenderer {
   }
 
   /** Sky, fog, camera range and scenery for a dimension. */
-  setDimension(dim: Dimension, season: Season) {
+  setDimension(dim: Dimension) {
     this.dim = dim;
     if (this.photoFrame) this.photoFrame.group.visible = this.photoFrame.dim === dim;
     for (const o of this.extras) {
@@ -354,19 +398,29 @@ export class VoxelRenderer {
     this.comets = [];
     this.searchlights = [];
     this.holos = [];
-    this.setSeason(season);
+    this.dropWeather();
+    this.skyDay = new THREE.Color(SKY_VALLEY);
     const fog = this.scene.fog as THREE.Fog;
     this.sky.setVisible(dim !== 'space');
-    this.sky.setPalette(SKY_PALETTE[dim === 'future' ? 'future' : dim === 'store' ? 'store' : season], true);
+    this.sky.setPalette(SKY_PALETTE[dim === 'future' ? 'future' : dim === 'store' ? 'store' : 'valley'], true);
     if (dim === 'valley') {
       fog.near = 34; fog.far = 70; this.camera.far = 160;
     } else if (dim === 'future') {
-      this.setSeason('summer');
       this.skyDay = new THREE.Color(SKY_FUTURE);
-      this.dropWeather();
       fog.near = 40; fog.far = 70; this.camera.far = 170;
       this.buildCars();
       this.buildCityFX();
+    } else if (dim === 'maze') {
+      // 노란 방: no sky at all; only the ceiling panels light it, and the dark breathes (see darkFX).
+      this.sky.setVisible(false);
+      this.skyDay = new THREE.Color(MAZE_VOID);
+      fog.near = 3; fog.far = 24; this.camera.far = 44;
+      this.lampSeed = NaN; // every visit starts with the lights on
+    } else if (dim === 'parking') {
+      // 끝없는 주차장: a city with every light off; below the street, only the tubes.
+      this.sky.setPalette(SKY_PALETTE.store, true);
+      this.skyDay = new THREE.Color(0x0e1222);
+      fog.near = 14; fog.far = 56; this.camera.far = 150;
     } else if (dim === 'store') {
       // 꿀알바 street: always 3 a.m., no weather, the glow of the store and the streetlights.
       this.dropWeather();
@@ -939,14 +993,18 @@ export class VoxelRenderer {
 
   /** 0..1 daylight tints the sky, fog and every block. `time` places the sun and moon. */
   setDaylight(d: number, time = 0.25) {
-    if (this.dim === 'space') d = 1;
-    // The store street is stuck at 3 a.m., but bright enough to see the shelves by.
-    if (this.dim === 'store') { d = 0.42; time = 0.86; }
+    if (this.dim === 'maze' || this.dim === 'parking') {
+      this.darkWorldLight();
+      return;
+    }
+    const dark = DARK[this.dim];
+    if (dark) { d = dark.d; time = dark.time; }
     this.time = time;
     this.light = d;
     // Night isn't just darker: white turns moonlit blue, so lit windows and magic stand out warm.
     const n = Math.max(0, Math.min(1, (1 - d) / 0.75));
     const c = this.lightColor.setRGB(1, 1, 1).lerp(MOONLIGHT, n);
+    if (dark) c.multiplyScalar(dark.dim);
     this.solidMat.color.copy(c);
     this.waterMat.color.copy(c);
     this.glassMat.color.copy(c).lerp(this.tmpColor.setRGB(1, 1, 1), 0.35);
@@ -958,6 +1016,108 @@ export class VoxelRenderer {
       for (const a of this.avatars.values()) this.tintAvatar(a);
     }
   }
+  /**
+   * The dark worlds' own light: in the 노란 방 the ceiling panels do it all (the block colour stays
+   * white and the shader lights it), cold tube light in the car park, darker still below the street.
+   */
+  private darkWorldLight() {
+    const under = this.dim === 'parking' && this.camera.position.y < PARK_GROUND + 0.5;
+    this.time = 0.86;
+    this.light = this.dim === 'maze' ? 0.08 : under ? 0.14 : 0.22;
+    const c = this.lightColor.setHex(this.dim === 'maze' ? 0xffffff : under ? 0x58625e : 0x5e6882);
+    this.solidMat.color.copy(c);
+    this.waterMat.color.copy(c);
+    this.glassMat.color.copy(c).lerp(this.tmpColor.setRGB(1, 1, 1), 0.2);
+    this.tintPhotoFrame();
+    if (this.dim === 'maze') return; // characters there take the light of the panels (darkFX)
+    const k = under ? 0.36 : 0.42;
+    if (Math.abs(k - this.daylight) > 0.01) {
+      this.daylight = k;
+      for (const a of this.avatars.values()) this.tintAvatar(a);
+    }
+  }
+
+  /** Now and then the panel you're under stutters; `onFlicker` lets the game add a sound. */
+  onFlicker: () => void = () => {};
+  /** A panel behind you has just died (the game plays the relay's click). */
+  onLampOut: () => void = () => {};
+  private flick = { next: 4, left: 0, t: 0 };
+  private lamps: Lamp[] = [];
+  private lampSeed = NaN;
+  private readonly lampD = new Float32Array(1024);
+  private lampTint = 0;
+
+  private darkFX(dt: number) {
+    const f = this.flick;
+    this.lampU.uMaze.value = this.dim === 'maze' ? 1 : 0;
+    if (this.dim !== 'maze') return;
+    if (this.lampSeed !== this.world.seed) {
+      this.lampSeed = this.world.seed;
+      this.lamps = mazeLamps(this.world.seed).map((l) => ({ ...l, s: 0.5, seen: false, dead: false, dying: 0 }));
+    }
+    f.t += dt;
+    f.next -= dt;
+    if (f.next <= 0) {
+      f.left = 0.25 + Math.random() * 0.7;
+      f.next = 6 + Math.random() * 10;
+      this.onFlicker();
+    }
+    if (f.left > 0) f.left -= dt;
+    const cam = this.camera.position, k = Math.min(1, dt * 2.5);
+    let nearest = -1, nearD = Infinity, here = 0.03;
+    for (let i = 0; i < this.lamps.length; i++) {
+      const l = this.lamps[i];
+      const dx = l.x - cam.x, dz = l.z - cam.z, d = Math.sqrt(dx * dx + dz * dz);
+      this.lampD[i] = d;
+      if (d < nearD) { nearD = d; nearest = i; }
+      if (!l.exit) {
+        if (d < LAMP_NEAR) l.seen = true;
+        else if (l.seen && !l.dead && d > LAMP_GONE) {
+          l.dead = true;
+          l.dying = 0.9;
+          if (d < LAMP_GONE + 8) this.onLampOut();
+        }
+      }
+      // Unvisited panels hum at half strength and wake up a little as you come near; dead ones only
+      // stir (weakly, unsteadily) when you stand right under them again.
+      let target = l.exit ? 0.7 : l.dead ? (d < 3.5 ? 0.22 + 0.12 * Math.random() : 0) : 0.5 + 0.35 * Math.max(0, 1 - d / LAMP_NEAR);
+      if (l.dying > 0) {
+        l.dying -= dt;
+        target = Math.random() < 0.5 ? 0 : l.s;
+        l.s = target;
+      }
+      l.s += (target - l.s) * k;
+    }
+    // The flicker: the panel overhead cuts out in stutters.
+    const flickering = f.left > 0 && nearest >= 0;
+    // Hand the nearest lit panels to the shader.
+    const slots = this.lampU.uLamps.value;
+    const used = new Uint8Array(0);
+    void used;
+    for (let n = 0; n < LAMP_SLOTS; n++) {
+      let best = -1, bd = Infinity;
+      for (let i = 0; i < this.lamps.length; i++) {
+        const d = this.lampD[i];
+        if (d < bd && this.lamps[i].s > 0.004) { bd = d; best = i; }
+      }
+      if (best < 0) { slots[n].set(0, -100, 0, 0); continue; }
+      const l = this.lamps[best];
+      this.lampD[best] = Infinity;
+      const v = flickering && best === nearest ? (Math.random() < 0.55 ? 0.05 : l.s) : l.s;
+      slots[n].set(l.x, l.y, l.z, v);
+      here += v / (1 + bd * bd * 0.085);
+    }
+    // Characters take the light where you stand (re-tinted only when it visibly changes).
+    const tint = Math.min(0.85, 0.12 + here * 0.8);
+    if (Math.abs(tint - this.lampTint) > 0.04) {
+      this.lampTint = tint;
+      this.daylight = tint;
+      for (const a of this.avatars.values()) this.tintAvatar(a);
+    }
+    // The dark breathes: how far you can see swells and shrinks, slowly.
+    (this.scene.fog as THREE.Fog).far = 22 + 3 * Math.sin(f.t * 0.45);
+  }
+
   private light = 1;
   private readonly lightColor = new THREE.Color();
   private readonly tmpColor = new THREE.Color();
@@ -1124,6 +1284,7 @@ export class VoxelRenderer {
       put(p, 0.16, 0.15, 0.16, skin, 0, -0.32, 0);
       return p;
     });
+    if (!robot && look in GUIDE_TOOL) dressGuide(look, fig, arms, put);
 
     // The head: half the figure (more, for people: a huge bald dome), tipped back a little so it
     // looks down its nose at you.
@@ -1306,6 +1467,48 @@ export class VoxelRenderer {
       for (const x of [-0.55, 0.55]) put(head, 0.06, 0.06, 0.06, white, x, 0.46, -0.04); // earphones
       nose();
       put(head, 0.18, 0.03, 0.03, C(0x9a5a5a), 0, 0.2, F - 0.025);
+    } else if (look === 'lantern') {
+      // 등불지기: a deep hood framing a calm face.
+      const hood = C(0x1c2238);
+      put(head, 1.14, 0.16, 0.96, hood, 0, 1.02, 0.02);
+      for (const x of [-0.56, 0.56]) put(head, 0.08, 0.86, 0.94, hood, x, 0.6, 0.03);
+      put(head, 1.14, 0.9, 0.08, hood, 0, 0.56, 0.48);
+      put(head, 1.14, 0.12, 0.1, hood.clone().multiplyScalar(1.3), 0, 0.92, F - 0.02); // the hood's rim
+      eyes({ w: 0.18, h: 0.08, pupil: 0.07, lid: true });
+      nose();
+      put(head, 0.2, 0.03, 0.03, C(0x9a5a5a), 0, 0.21, F - 0.025);
+    } else if (look === 'shield') {
+      // 수호자: a steel helmet with a nose guard.
+      const steel = C(0xaab2bc);
+      put(head, 1.1, 0.34, 0.94, steel, 0, 0.94, 0.02);
+      put(head, 1.12, 0.06, 0.96, C(0x7a5a3a), 0, 0.78, 0.02);
+      put(head, 0.1, 0.36, 0.06, steel, 0, 0.58, F - 0.08);
+      eyes({ w: 0.2, h: 0.09, pupil: 0.08 });
+      for (const x of [-0.22, 0.22]) put(head, 0.28, 0.07, 0.05, C(0x3a2a20), x, 0.7, F - 0.03, x < 0 ? -0.15 : 0.15); // stern brows
+      nose();
+      put(head, 0.3, 0.04, 0.03, C(0x8a4a40), 0, 0.2, F - 0.025);
+    } else if (look === 'medic') {
+      // 치유사: a white cap with a green cross, kind eyes.
+      topHair(() => false, 0.04);
+      sideHair(0.4);
+      put(head, 0.9, 0.2, 0.8, white, 0, 1.08, 0.02);
+      put(head, 0.24, 0.07, 0.03, C(0x2faa5a), 0, 1.1, F + 0.02);
+      put(head, 0.07, 0.2, 0.03, C(0x2faa5a), 0, 1.1, F + 0.02);
+      eyes({ w: 0.2, h: 0.13, pupil: 0.09, py: 0.01 });
+      nose(skin.clone().multiplyScalar(0.93), 0.8);
+      put(head, 0.26, 0.05, 0.03, C(0xc06a6a), 0, 0.21, F - 0.025);
+      put(head, 0.06, 0.04, 0.03, C(0xc06a6a), -0.14, 0.235, F - 0.025);
+      put(head, 0.06, 0.04, 0.03, C(0xc06a6a), 0.14, 0.235, F - 0.025); // a smile
+    } else if (look === 'scout') {
+      // 정찰대원: a headband with a lamp that's always on.
+      topHair(() => false, 0.1);
+      sideHair(0.34);
+      put(head, 1.08, 0.12, 0.92, C(0x3a4a2a), 0, 0.86, 0.02);
+      put(head, 0.22, 0.18, 0.1, C(0x2a2a2a), 0, 0.88, F - 0.06);
+      put(head, 0.14, 0.12, 0.04, C(0xfff4c8), 0, 0.88, F - 0.12, 0, true);
+      eyes({ w: 0.2, h: 0.12, pupil: 0.09, px: 0.03 });
+      nose();
+      put(head, 0.3, 0.05, 0.03, C(0x8a3a3a), 0.02, 0.2, F - 0.025, 0.12); // a grin
     } else {
       // 'barcode': a bald top with five strands combed carefully across it.
       for (let i = 0; i < 5; i++) put(head, 0.84, 0.025, 0.035, hair, 0, 0.995, -0.26 + i * 0.12, 0);
@@ -1334,6 +1537,16 @@ export class VoxelRenderer {
     const w = WEAPON_LOOK[tool];
     if (tool === 'block') {
       add(box(0.28, 0.28, 0.28), color, 0, 0.08, -0.12);
+    } else if (tool === 'lantern') {
+      // A paper lantern on a short pole, lit from inside.
+      add(box(0.04, 0.04, 0.4), wood, 0, 0, -0.1);
+      add(box(0.22, 0.26, 0.22), 0xffb45a, 0, -0.12, -0.32, true);
+      add(box(0.24, 0.04, 0.24), 0x3a2a20, 0, 0.02, -0.32);
+      add(box(0.24, 0.04, 0.24), 0x3a2a20, 0, -0.26, -0.32);
+    } else if (tool === 'kit') {
+      add(box(0.3, 0.22, 0.12), 0xf4f6f8, 0, -0.12, -0.04);
+      add(box(0.14, 0.04, 0.02), 0x2faa5a, 0, -0.1, -0.11);
+      add(box(0.04, 0.14, 0.02), 0x2faa5a, 0, -0.1, -0.11);
     } else if (tool === 'phone') {
       // Held up in front of the face, screen glowing.
       add(box(0.16, 0.26, 0.03), 0x1a1d24, 0, 0.12, -0.08);
@@ -1378,7 +1591,7 @@ export class VoxelRenderer {
   private poseTool(a: THREE.Group, p: Avatar, limbs: THREE.Group[], dt: number, speed: number) {
     const grip = a.userData.grip as THREE.Group | undefined;
     if (grip) {
-      const tool = p.tool ?? (p.look === 'phone' ? 'phone' : undefined);
+      const tool = p.tool ?? (p.look === 'phone' ? 'phone' : p.look ? GUIDE_TOOL[p.look] : undefined);
       const key = tool ? `${tool}:${tool === 'block' ? p.toolColor ?? 0 : ''}` : '';
       if (key !== (a.userData.toolKey ?? '')) {
         a.userData.toolKey = key;
@@ -1649,10 +1862,16 @@ export class VoxelRenderer {
   render(dt = 0) {
     dt = Math.min(dt, 0.1);
     time('mesh', () => this.flushDirty());
-    if (this.dim !== 'space') {
+    if (this.dim === 'maze') {
+      this.renderer.setClearColor(MAZE_VOID);
+      (this.scene.fog as THREE.Fog).color.setHex(MAZE_VOID);
+      this.nightAmt = 1;
+    } else if (this.dim !== 'space') {
       const sky = this.sky.update(this.camera, this.time, (this.light - 0.25) / 0.75, dt);
       this.renderer.setClearColor(sky);
       (this.scene.fog as THREE.Fog).color.copy(sky);
+      // Below the car park's street level the fog is the dark of concrete, not the sky.
+      if (this.dim === 'parking' && this.camera.position.y < PARK_GROUND + 0.5) (this.scene.fog as THREE.Fog).color.setHex(0x07090c);
       this.nightAmt = this.sky.night;
     } else {
       this.renderer.setClearColor(SKY_SPACE);
@@ -1666,6 +1885,7 @@ export class VoxelRenderer {
     this.weather?.update(dt, cam, 0.35 + 0.65 * this.light);
     this.fireflies.update(dt, cam, 1, this.dim === 'valley' ? 0.9 * Math.min(1, this.nightAmt * 1.4) : this.dim === 'future' ? 0.3 : 0);
     this.sparks.update(dt);
+    this.darkFX(dt);
     this.updateScenery(dt);
     this.updateWeapon(dt);
     this.updateWand(dt);
@@ -1712,5 +1932,29 @@ export class VoxelRenderer {
   private dispose(group: THREE.Group) {
     this.scene.remove(group);
     group.traverse((o) => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
+  }
+}
+
+/** What each guide carries ('' for nothing), and so which looks are guides. */
+const GUIDE_TOOL: Partial<Record<Look, string>> = { lantern: 'lantern', shield: '', medic: 'kit', scout: '' };
+
+/** The guides' gear on the body: a cloak, a shield and breastplate, a white coat, a backpack. */
+function dressGuide(look: Look, fig: THREE.Group, arms: THREE.Group[],
+  put: (parent: THREE.Object3D, w: number, h: number, d: number, c: THREE.Color, x: number, y: number, z: number, rz?: number, glow?: boolean) => THREE.Mesh) {
+  const C = (h: number) => new THREE.Color(h);
+  if (look === 'lantern') {
+    put(fig, 0.64, 0.62, 0.5, C(0x1c2238), 0, 0.5, 0.05); // a long cloak
+    put(fig, 0.1, 0.1, 0.04, C(0xc9a24a), 0, 0.8, -0.3); // its clasp
+  } else if (look === 'shield') {
+    put(fig, 0.52, 0.3, 0.08, C(0xb8bcc4), 0, 0.7, -0.29); // breastplate
+    put(arms[0], 0.06, 0.52, 0.44, C(0x8a6a3a), -0.1, -0.24, -0.04); // a round-cornered shield
+    put(arms[0], 0.08, 0.14, 0.14, C(0xc9a24a), -0.14, -0.24, -0.04); // its boss
+  } else if (look === 'medic') {
+    put(fig, 0.56, 0.5, 0.46, C(0xf4f6f8), 0, 0.58, 0.01); // white coat
+    put(fig, 0.16, 0.05, 0.03, C(0x2faa5a), 0, 0.72, -0.4);
+    put(fig, 0.05, 0.16, 0.03, C(0x2faa5a), 0, 0.72, -0.4);
+  } else if (look === 'scout') {
+    put(fig, 0.42, 0.44, 0.22, C(0x5a6a3a), 0, 0.68, 0.3); // backpack
+    put(fig, 0.46, 0.1, 0.1, C(0xd8c89a), 0, 0.94, 0.3); // a rolled mat on top
   }
 }

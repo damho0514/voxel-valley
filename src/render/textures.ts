@@ -397,6 +397,99 @@ const STORE: Record<string, Painter> = {
   awning: (x, y) => (Math.floor(x / 4) % 2 ? hex(0xfff3e0) : y < 3 ? hex(0xd9781e) : hex(0xff9f2e)),
 };
 
+/** The dark worlds: an old 안방 (maze) and a car park (game/darkworlds.ts). */
+const paint = (base: number, amount: number, s: number): Painter => grain(base, amount, s);
+const DARK: Record<string, Painter> = {
+  jangpan: (x, y) => {
+    // Old office carpet: a fine low pile in khaki-beige, darker damp blotches that never dry.
+    const pile = 0.9 + hash(x, y, 601) * 0.12 + fbm(x, y, 603) * 0.06;
+    const c = shade(hex(0xa49a68), pile) as RGB;
+    const damp = fbm(x + 40, y + 13, 602);
+    return damp > 0.62 ? (mix(c, hex(0x6f6638), Math.min(0.6, (damp - 0.62) * 2.4)) as RGB) : c;
+  },
+  wallpaper: (x, y) => {
+    // Mono-yellow paper with thin vertical stripes, faintly uneven, the way it fades on old walls.
+    const base = shade(hex(0xcdbb63), 0.95 + fbm(x, y, 611) * 0.07) as RGB;
+    if (x % 8 === 0) return shade(base, 0.9) as RGB;
+    if (x % 8 === 4) return shade(base, 1.04) as RGB;
+    return base;
+  },
+  wallpaper_stain: (x, y) => {
+    const c = DARK.wallpaper(x, y) as RGB;
+    const blot = fbm(x, y * 0.6, 621);
+    return blot > 0.52 ? (mix(c, hex(0x7a6a30), Math.min(0.7, (blot - 0.52) * 2.6)) as RGB) : (shade(c, 0.93) as RGB);
+  },
+  banja: (x, y) => {
+    // Acoustic ceiling tiles: a pale grid, pinholes in the board, yellowed with age.
+    if (x % 16 === 0 || y % 16 === 0) return hex(0xa9a07a);
+    const c = shade(hex(0xd9d3ae), 0.96 + fbm(x, y, 631) * 0.06) as RGB;
+    return hash(x, y, 632) < 0.06 ? (shade(c, 0.86) as RGB) : c;
+  },
+  jagae_top: paint(0x1d1a22, 0.15, 641),
+  jagae_side: (x, y) => {
+    // Black lacquer with mother-of-pearl: a curling vine of shimmering specks, and brass corners.
+    if ((x < 3 || x > 28) && (y < 3 || y > 28)) return hex(0xc9a24a);
+    const vine = Math.abs(y - 16 - 7 * Math.sin(x / 4.5)) < 1.2 || Math.hypot(x - 9, y - 9) < 2.5 || Math.hypot(x - 23, y - 22) < 2.5;
+    if (vine) {
+      const t = hash(x, y, 642);
+      return t < 0.33 ? hex(0xbfe8ff) : t < 0.66 ? hex(0xf6d6f0) : hex(0xd8f6e0);
+    }
+    return shade(hex(0x1d1a22), 0.9 + hash(x, y, 643) * 0.2) as RGB;
+  },
+  byeongpung: (x, y) => {
+    if (x < 2 || x > 29 || y < 2 || y > 29) return hex(0x5a3a22);
+    // A faint ink landscape: two mountains and a moon.
+    const m1 = y > 22 - 9 * Math.max(0, 1 - Math.abs(x - 11) / 9), m2 = y > 26 - 7 * Math.max(0, 1 - Math.abs(x - 22) / 8);
+    if (Math.hypot(x - 23, y - 8) < 3) return hex(0xe8d8a8);
+    if (m1 || m2) return shade(hex(0x8a8268), 0.9 + fbm(x, y, 651) * 0.2) as RGB;
+    return shade(hex(0xd8c89a), 0.95 + fbm(x, y, 652) * 0.08) as RGB;
+  },
+  yo: (x, y) => ((x % 8 === 0 || y % 8 === 0) ? hex(0xc07888) : (shade(hex(0xe0a0b0), 0.95 + hash(x >> 1, y >> 1, 661) * 0.1) as RGB)),
+  tv_side: paint(0x5a5550, 0.12, 671),
+  tv_front: (x, y) => {
+    if (x < 3 || x > 28 || y < 3 || y > 24) return hex(0x3a3632);
+    if (y > 26) return x % 6 === 0 ? hex(0x9a948a) : hex(0x3a3632);
+    const v = hash(x, y, 672) * 0.6 + 0.25 + (y % 3 === 0 ? -0.1 : 0);
+    return shade(hex(0xc8d4e0), v) as RGB; // static
+  },
+  dim_lamp: (x, y) => {
+    // A fluorescent panel: a thin metal frame round a milky diffuser with a faint prism grid.
+    if (x < 2 || x > 29 || y < 2 || y > 29) return hex(0xb8b29a);
+    if (x % 6 === 0 || y % 6 === 0) return hex(0xf2ead0);
+    return shade(hex(0xfff8e2), 0.97 + 0.03 * Math.sin(x * 0.5)) as RGB;
+  },
+  concrete: (x, y) => {
+    if ((x === 8 || x === 24) && (y === 8 || y === 24)) return hex(0x5a5a58); // form-tie holes
+    if (y % 16 === 0) return hex(0x84847f);
+    return shade(hex(0x9a9a96), 0.9 + fbm(x, y, 681) * 0.2) as RGB;
+  },
+  epoxy: (x, y) => shade(hex(0x5f7f6a), 0.92 + fbm(x, y, 691) * 0.12 + (Math.abs(x - y) % 29 < 1 ? 0.06 : 0)) as RGB,
+  level_blue: paint(0x2f6fd6, 0.1, 701),
+  level_yellow: (x, y) => (Math.floor((x + y) / 6) % 2 ? hex(0xf2c230) : hex(0x2a2a2a)), // hazard stripes
+  level_red: paint(0xd84a3a, 0.1, 703),
+  level_green: paint(0x3faa5a, 0.1, 704),
+  exit_sign: (x, y) => {
+    // An original exit sign: a white doorway with an arrow running into it, on green.
+    if (x < 2 || x > 29 || y < 6 || y > 25) return hex(0xe8f0e8);
+    const door = x >= 19 && x <= 26 && y >= 9 && y <= 22 && (x === 19 || x === 26 || y === 9);
+    const arrow = (y >= 14 && y <= 17 && x >= 5 && x <= 14) || (x >= 12 && x <= 16 && Math.abs(y - 15.5) <= 16 - x);
+    return door || arrow ? hex(0xffffff) : hex(0x1faa50);
+  },
+  car_red: (x, y) => carBody(0xb8322c, x, y),
+  car_white: (x, y) => carBody(0xe8eaec, x, y),
+  car_black: (x, y) => carBody(0x22252b, x, y),
+  car_glass: (x, y) => (Math.abs(x - y - 6) < 3 || Math.abs(x - y + 10) < 1.5 ? hex(0x6a7f94) : (shade(hex(0x22303e), 0.9 + y / 160) as RGB)),
+  tire: (x, y) => {
+    const r = Math.hypot(x - 15.5, y - 15.5);
+    return r < 5 ? hex(0x9aa1aa) : r < 6 ? hex(0x4a4a4a) : (shade(hex(0x161616), 0.9 + hash(x, y, 711) * 0.2) as RGB);
+  },
+};
+function carBody(base: number, x: number, y: number): RGB {
+  if (y === 15) return shade(hex(base), 0.7) as RGB; // the door line
+  if (y >= 18 && y <= 19 && x >= 20 && x <= 25) return hex(0x9aa1aa); // a handle
+  return shade(hex(base), 0.92 + y / 260 + hash(x, y, 721) * 0.04) as RGB;
+}
+
 const TILES: [string, Painter][] = [
   ['moss_top', P.moss_top], ['moss_side', P.moss_side], ['soil', P.soil], ['stone', P.stone], ['sand', P.sand],
   ['wood_side', P.wood_side], ['wood_top', P.wood_top], ['leaf', P.leaf], ['plank', P.plank], ['clay', P.clay],
@@ -412,6 +505,7 @@ const TILES: [string, Painter][] = [
   ['chest_side', chest(false)], ['chest_top', chest(true)], ['rune', rune],
   ...PHOTO_BLOCKS.map((_, i) => [`photo_${i}`, photoTile(i)] as [string, Painter]),
   ...Object.entries(STORE),
+  ...Object.entries(DARK),
 ];
 const TILE_INDEX = new Map(TILES.map(([name], i) => [name, i]));
 
@@ -488,6 +582,29 @@ const FACES: Partial<Record<Block, [string, string, string]>> = {
   [Block.StaffDoor]: ['staffdoor', 'staffdoor', 'staffdoor'],
   [Block.Bedding]: ['bedding', 'bedding', 'bedding'],
   [Block.Awning]: ['awning', 'awning', 'awning'],
+  [Block.PortalDark]: ['portal', 'portal', 'portal'],
+  [Block.PortalParking]: ['portal', 'portal', 'portal'],
+  [Block.Jangpan]: ['jangpan', 'wallpaper', 'jangpan'],
+  [Block.Wallpaper]: ['banja', 'wallpaper', 'jangpan'],
+  [Block.WallpaperStain]: ['banja', 'wallpaper_stain', 'jangpan'],
+  [Block.Banja]: ['banja', 'banja', 'banja'],
+  [Block.Jagae]: ['jagae_top', 'jagae_side', 'jagae_top'],
+  [Block.Byeongpung]: ['byeongpung', 'byeongpung', 'byeongpung'],
+  [Block.Yo]: ['yo', 'yo', 'yo'],
+  [Block.OldTv]: ['tv_side', 'tv_front', 'tv_side'],
+  [Block.DimLamp]: ['dim_lamp', 'dim_lamp', 'dim_lamp'],
+  [Block.Concrete]: ['concrete', 'concrete', 'concrete'],
+  [Block.Epoxy]: ['epoxy', 'concrete', 'concrete'],
+  [Block.LevelBlue]: ['level_blue', 'level_blue', 'level_blue'],
+  [Block.LevelYellow]: ['level_yellow', 'level_yellow', 'level_yellow'],
+  [Block.LevelRed]: ['level_red', 'level_red', 'level_red'],
+  [Block.LevelGreen]: ['level_green', 'level_green', 'level_green'],
+  [Block.ExitSign]: ['exit_sign', 'exit_sign', 'exit_sign'],
+  [Block.CarRed]: ['car_red', 'car_red', 'car_red'],
+  [Block.CarWhite]: ['car_white', 'car_white', 'car_white'],
+  [Block.CarBlack]: ['car_black', 'car_black', 'car_black'],
+  [Block.CarGlass]: ['car_glass', 'car_glass', 'car_glass'],
+  [Block.Tire]: ['tire', 'tire', 'tire'],
 };
 
 /** Tile index for a block face (face: 0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z). */

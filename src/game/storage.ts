@@ -1,48 +1,39 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Block, Dimension, Season } from './blocks';
+import { Block, Dimension } from './blocks';
 
-// One saved world per season. The pre-season save (a summer-looking world) lives under the old key.
+// There is one saved world. It keeps the key of the old summer world (the one its terrain matches,
+// so existing builds carry over); the very first save, from before worlds had keys, is the fallback.
+const KEY = 'voxel-valley-go/save-v1-summer';
 const LEGACY_KEY = 'voxel-valley-go/save-v1';
-const keyFor = (season: Season) => `voxel-valley-go/save-v1-${season}`;
 
-// Older saves also carry an `inventory` field; it is ignored now that blocks are unlimited.
+// Older saves also carry `inventory` and `season` fields; both are ignored now.
 export type Save = {
   seed: number;
-  season?: Season;
   edits: [string, Block][]; // the valley
   pos?: [number, number, number];
   dim?: Dimension; // where the player is
-  dimEdits?: Partial<Record<Dimension, [string, Block][]>>; // the future city and space
+  dimEdits?: Partial<Record<Dimension, [string, Block][]>>; // the other dimensions
 };
 
-export async function loadSave(season: Season): Promise<Save | null> {
+export async function loadSave(): Promise<Save | null> {
   try {
-    let raw = await AsyncStorage.getItem(keyFor(season));
-    if (!raw && season === 'summer') raw = await AsyncStorage.getItem(LEGACY_KEY);
-    return raw ? { ...(JSON.parse(raw) as Save), season } : null;
+    const raw = (await AsyncStorage.getItem(KEY)) ?? (await AsyncStorage.getItem(LEGACY_KEY));
+    return raw ? (JSON.parse(raw) as Save) : null;
   } catch {
     return null;
   }
 }
 
-/** Which seasons have a saved world. */
-export async function savedSeasons(): Promise<Set<Season>> {
-  const out = new Set<Season>();
-  for (const s of ['spring', 'summer', 'autumn', 'winter'] as Season[]) if (await loadSave(s)) out.add(s);
-  return out;
-}
-
 export async function writeSave(save: Save) {
   try {
-    await AsyncStorage.setItem(keyFor(save.season ?? 'summer'), JSON.stringify(save));
+    await AsyncStorage.setItem(KEY, JSON.stringify(save));
   } catch {
     // Saving is best-effort.
   }
 }
 
-export async function clearSave(season: Season) {
+export async function clearSave() {
   try {
-    await AsyncStorage.removeItem(keyFor(season));
-    if (season === 'summer') await AsyncStorage.removeItem(LEGACY_KEY);
+    await AsyncStorage.multiRemove([KEY, LEGACY_KEY]);
   } catch {}
 }

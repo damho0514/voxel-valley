@@ -56,21 +56,30 @@ export enum Block {
   Cooler = 62, Counter = 63, Register = 64, CigWall = 65, CoffeeMachine = 66, Microwave = 67, HotWater = 68,
   Freezer = 69, Atm = 70, TrashBin = 71, PlasticTable = 72, PlasticChair = 73, Parasol = 74, DeliveryBox = 75,
   Sidewalk = 76, StreetLight = 77, Brick = 78, Shutter = 79, StaffDoor = 80, Bedding = 81, Awning = 82,
+  // The dark worlds (game/darkworlds.ts): 노란 방, the empty-office maze, and 끝없는 주차장, the car park.
+  PortalDark = 83, PortalParking = 84, Jangpan = 85, Wallpaper = 86, WallpaperStain = 87, Banja = 88,
+  Jagae = 89, Byeongpung = 90, Yo = 91, OldTv = 92, DimLamp = 93, Concrete = 94, Epoxy = 95,
+  LevelBlue = 96, LevelYellow = 97, LevelRed = 98, LevelGreen = 99, ExitSign = 100,
+  CarRed = 101, CarWhite = 102, CarBlack = 103, CarGlass = 104, Tire = 105,
 }
 
-export const BLOCK_COUNT = 83;
+export const BLOCK_COUNT = 106;
 
 /** The photo-colour blocks, in palette order (palette[i] paints PHOTO_BLOCKS[i]). */
 export const PHOTO_BLOCKS: Block[] = Array.from({ length: 12 }, (_, i) => (Block.Photo0 + i) as Block);
 export const isPhotoBlock = (b: Block) => b >= Block.Photo0 && b <= Block.Photo11;
 
-/** The valley (seasonal), the future city, outer space, and the 꿀알바 store street (dug into). */
-export type Dimension = 'valley' | 'future' | 'space' | 'store';
-export const DIMENSION_INFO: Record<Dimension, { name: string; emoji: string }> = {
+/** The valley, the future city, outer space, and the 꿀알바 store street (dug into). */
+export type Dimension = 'valley' | 'future' | 'space' | 'store' | 'maze' | 'parking';
+/** Every dimension, in room-protocol order (index = DimCode, see server/src/protocol.ts DIM_PREFIX). */
+export const DIMENSIONS: Dimension[] = ['valley', 'future', 'space', 'store', 'maze', 'parking'];
+export const DIMENSION_INFO: Record<Dimension, { name: string; emoji: string; tagline?: string }> = {
   valley: { name: '계곡', emoji: '🏞️' },
   future: { name: '미래 도시', emoji: '🚀' },
   space: { name: '우주', emoji: '🌌' },
   store: { name: '꿀알바', emoji: '🏪' },
+  maze: { name: '노란 방', emoji: '💡', tagline: '끝없는 빈 사무실. 지나온 불은 꺼진다. 초록 비상구 불빛을 찾아라' },
+  parking: { name: '끝없는 주차장', emoji: '🅿️', tagline: '지하 4층부터 옥상까지, 아무도 없다' },
 };
 
 /** Walking into one of these blocks takes you to that dimension. */
@@ -78,15 +87,8 @@ export const PORTAL_TARGET: Partial<Record<Block, Dimension>> = {
   [Block.PortalFuture]: 'future',
   [Block.PortalSpace]: 'space',
   [Block.PortalHome]: 'valley',
-};
-
-export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
-export const SEASONS: Season[] = ['spring', 'summer', 'autumn', 'winter'];
-export const SEASON_INFO: Record<Season, { name: string; emoji: string; tagline: string; color: string }> = {
-  spring: { name: '봄', emoji: '🌸', tagline: '벚꽃 날리는 언덕', color: '#f3a6c4' },
-  summer: { name: '여름', emoji: '🌿', tagline: '푸른 숲과 넓은 바다', color: '#5fbf7f' },
-  autumn: { name: '가을', emoji: '🍁', tagline: '단풍 물든 들판', color: '#e8955a' },
-  winter: { name: '겨울', emoji: '❄️', tagline: '눈 덮인 계곡과 얼음 호수', color: '#8fbfe0' },
+  [Block.PortalDark]: 'maze',
+  [Block.PortalParking]: 'parking',
 };
 
 export type BlockInfo = {
@@ -200,6 +202,30 @@ export const BLOCKS: Record<Block, BlockInfo> = {
   [Block.StaffDoor]: { name: '직원 출입문', ...same(0x6f7a86), solid: true, opaque: true, breakable: true, hardness: 0.8 },
   [Block.Bedding]: { name: '이불', ...same(0x7fa6e0), solid: true, opaque: true, breakable: true, hardness: 0.2 },
   [Block.Awning]: { name: '차양', ...same(0xff9f2e), solid: true, opaque: true, breakable: true, hardness: 0.3 },
+  // The dark worlds. The maze's floor, walls and ceiling can't be broken: the way out has to be found.
+  [Block.PortalDark]: { name: '노란 방으로 가는 문', ...same(0xd8c25a), solid: false, opaque: false, breakable: false, hardness: Infinity, glow: true, portal: true },
+  [Block.PortalParking]: { name: '주차장으로 가는 문', ...same(0x3fd27a), solid: false, opaque: false, breakable: false, hardness: Infinity, glow: true, portal: true },
+  [Block.Jangpan]: { name: '눅눅한 카펫', ...same(0xa49a68), solid: true, opaque: true, breakable: false, hardness: Infinity },
+  [Block.Wallpaper]: { name: '노란 벽지', ...same(0xcdbb63), solid: true, opaque: true, breakable: false, hardness: Infinity },
+  [Block.WallpaperStain]: { name: '얼룩진 벽지', ...same(0xa8944a), solid: true, opaque: true, breakable: false, hardness: Infinity },
+  [Block.Banja]: { name: '천장 텍스', ...same(0xd9d3ae), solid: true, opaque: true, breakable: false, hardness: Infinity },
+  [Block.Jagae]: { name: '자개장', ...same(0x1d1a22), solid: true, opaque: true, breakable: true, hardness: 1.2 },
+  [Block.Byeongpung]: { name: '병풍', ...same(0xa8925e), solid: true, opaque: true, breakable: true, hardness: 0.5 },
+  [Block.Yo]: { name: '분홍 이불', ...same(0xe0a0b0), solid: true, opaque: true, breakable: true, hardness: 0.2 },
+  [Block.OldTv]: { name: '꺼지지 않는 TV', ...same(0x9aa8b8), solid: true, opaque: true, breakable: true, hardness: 0.6, glow: true },
+  [Block.DimLamp]: { name: '형광등 패널', ...same(0xfff3cf), solid: true, opaque: true, breakable: false, hardness: Infinity, glow: true },
+  [Block.Concrete]: { name: '콘크리트', ...same(0x9a9a96), solid: true, opaque: true, breakable: true, hardness: 1.4 },
+  [Block.Epoxy]: { name: '주차장 바닥', ...same(0x5f7f6a), solid: true, opaque: true, breakable: true, hardness: 1.4 },
+  [Block.LevelBlue]: { name: '층 표시(파랑)', ...same(0x2f6fd6), solid: true, opaque: true, breakable: true, hardness: 1.4 },
+  [Block.LevelYellow]: { name: '층 표시(노랑)', ...same(0xf2c230), solid: true, opaque: true, breakable: true, hardness: 1.4 },
+  [Block.LevelRed]: { name: '층 표시(빨강)', ...same(0xd84a3a), solid: true, opaque: true, breakable: true, hardness: 1.4 },
+  [Block.LevelGreen]: { name: '층 표시(초록)', ...same(0x3faa5a), solid: true, opaque: true, breakable: true, hardness: 1.4 },
+  [Block.ExitSign]: { name: '비상구 표시등', ...same(0x2fd36a), solid: true, opaque: true, breakable: false, hardness: Infinity, glow: true },
+  [Block.CarRed]: { name: '빨간 차', ...same(0xb8322c), solid: true, opaque: true, breakable: true, hardness: 1.0 },
+  [Block.CarWhite]: { name: '하얀 차', ...same(0xe8eaec), solid: true, opaque: true, breakable: true, hardness: 1.0 },
+  [Block.CarBlack]: { name: '검은 차', ...same(0x22252b), solid: true, opaque: true, breakable: true, hardness: 1.0 },
+  [Block.CarGlass]: { name: '자동차 유리', ...same(0x22303e), solid: true, opaque: true, breakable: true, hardness: 0.4 },
+  [Block.Tire]: { name: '타이어', ...same(0x161616), solid: true, opaque: true, breakable: true, hardness: 0.8 },
 };
 
 /** Recolours the photo blocks (their atlas tiles are repainted by render/textures.ts setPhotoTiles). */
@@ -213,12 +239,7 @@ export function setPhotoColors(colors: number[]) {
 const BASE_PALETTE: Block[] = [Block.Moss, Block.Soil, Block.Stone, Block.Sand, Block.Wood, Block.Plank, Block.Clay];
 /** Clear glass plus four tints, available everywhere. */
 export const GLASS_PALETTE: Block[] = [Block.Glass, Block.GlassSky, Block.GlassRose, Block.GlassAmber, Block.GlassMint];
-const SEASON_BLOCKS: Record<Season, Block[]> = {
-  spring: [Block.Blossom, Block.Leaf],
-  summer: [Block.Leaf, Block.Blossom],
-  autumn: [Block.Maple, Block.DryGrass],
-  winter: [Block.Snow, Block.Ice],
-};
+const NATURE_BLOCKS: Block[] = [Block.Leaf, Block.Blossom];
 
 const FUTURE_PALETTE: Block[] = [Block.Metal, Block.Asphalt, Block.RoadLine, Block.Neon, Block.Window, Block.WindowLit, Block.Stone, Block.Clay, Block.Station];
 const SPACE_PALETTE: Block[] = [Block.Station, Block.Metal, Block.Neon, Block.Asteroid, Block.Crystal, Block.WindowLit, Block.Stone, Block.Moss, Block.Clay];
@@ -229,8 +250,8 @@ const SPACE_PALETTE: Block[] = [Block.Station, Block.Metal, Block.Neon, Block.As
  */
 export const HOTBAR: Block[] = [Block.Glass, Block.Moss, Block.Metal];
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const paletteFor = (_season: Season, _dim: Dimension = 'valley'): Block[] => [...HOTBAR];
-export const FULL_PALETTES = { BASE_PALETTE, SEASON_BLOCKS, FUTURE_PALETTE, SPACE_PALETTE };
+export const paletteFor = (_dim: Dimension = 'valley'): Block[] => [...HOTBAR];
+export const FULL_PALETTES = { BASE_PALETTE, NATURE_BLOCKS, FUTURE_PALETTE, SPACE_PALETTE };
 
 export const isReplaceable = (b: Block) => b === Block.Air || b === Block.Water || b === Block.Lava;
 /** Liquids you sink and swim in. */
