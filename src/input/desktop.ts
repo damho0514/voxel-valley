@@ -24,9 +24,12 @@ export type DesktopActions = {
   secondary: () => void;
   /** Shift pressed: place the selected block at the crosshair, whatever tool is in hand. */
   place: () => void;
-  /** ⌘ (Mac) / Ctrl (Windows) + Shift held: break the block at the crosshair, whatever tool is in hand. */
-  dig: (held: boolean) => void;
-  /** Mouse wheel: next (1) or previous (-1) hotbar slot. */
+  /**
+   * ⌘ (Mac) / Ctrl (Windows) + Shift: break the block at the crosshair at once, whatever tool is in
+   * hand. Called on the press, then again every BREAK_REPEAT ms while both stay down.
+   */
+  breakNow: () => void;
+  /** Hotbar step (AirPods / headset double and triple press). The scroll wheel turns the view instead. */
   wheel: (dir: 1 | -1) => void;
   /**
    * Number keys 1–5 (0-based), laid out like a PC shooter's weapon slots:

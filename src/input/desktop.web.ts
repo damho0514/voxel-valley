@@ -20,7 +20,8 @@ export type { DesktopActions, DesktopKey, DesktopState } from './desktop';
  *   ⌘ + Enter (Mac) · Ctrl + Enter (Windows)   window ↔ fullscreen, only when pressed together
  *   left button      wand: hold and sweep to mark blocks · block: dig · blade: strike
  *   right button     wand: 💥 break the marked blocks · block: place
- *   1 wand  2 blocks (again: next block)  3 blade  4 🐉 dragon  5 💥 · wheel: next / previous
+ *   1 wand  2 blocks (again: next block)  3 blade  4 🐉 dragon  5 💥
+ *   trackpad two-finger swipe · scroll wheel   turn the view (never changes weapon)
  *   Q  previous weapon   R  reload (clear marks)   Tab  who's here (hold)   [ ]  mouse speed
  *   F  magic carpet      V · F5  1st / 3rd person  B  shop   G  dragon   X  clear marks
  *   H · F1  help
@@ -42,6 +43,10 @@ const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(naviga
 const CMD = IS_MAC ? ['MetaLeft', 'MetaRight'] : ['ControlLeft', 'ControlRight'];
 const cmdHeld = (e: KeyboardEvent) => (IS_MAC ? e.metaKey : e.ctrlKey);
 const ALT = ['AltLeft', 'AltRight'];
+/** ⌘/Ctrl + Shift held: one more block broken this often (ms) after the first, instant one. */
+const BREAK_REPEAT = 200;
+/** Two-finger trackpad swipe / scroll wheel: radians of turn per pixel scrolled. */
+const SCROLL_TURN = 0.004;
 const JUMP = ['Space', 'Enter', 'NumpadEnter'];
 /** Arrow keys turn the view (radians per second), so the game plays without a mouse. */
 const TURN_YAW = 2.4, TURN_PITCH = 1.5;
@@ -164,6 +169,7 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     const a = () => actions.current!;
     const held = new Set<string>();
     let mouseDown = false;
+    let breakTimer: ReturnType<typeof setInterval> | null = null;
     const attack = () => a().primary(mouseDown);
     // Arrow keys: turn the view a little every frame while held.
     let turnFrame = 0, turnAt = 0;
@@ -183,9 +189,12 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
       const len = Math.hypot(f, r) || 1;
       a().move(r / len, f / len);
       a().jump(JUMP.some((k) => held.has(k)));
-      // ⌘/Ctrl + Shift held breaks (on Windows that Ctrl doesn't also crouch).
+      // ⌘/Ctrl + Shift breaks at once (on Windows that Ctrl doesn't also crouch).
       const breaking = SHIFT.some((k) => held.has(k)) && CMD.some((k) => held.has(k));
-      a().dig(breaking);
+      if (breaking && !breakTimer) {
+        a().breakNow();
+        breakTimer = setInterval(() => a().breakNow(), BREAK_REPEAT);
+      } else if (!breaking && breakTimer) { clearInterval(breakTimer); breakTimer = null; }
       const walk = ALT.some((k) => held.has(k)), crouch = CROUCH.some((k) => held.has(k)) && !breaking;
       a().down(crouch);
       a().stance(walk, crouch);
@@ -284,9 +293,15 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 0) { mouseDown = false; attack(); }
     };
+    // Trackpad (two-finger swipe) or scroll wheel only turns the view; weapons are on 1–5 / Q.
+    // Not passive, so a sideways swipe can't also send the browser back a page.
     const onWheel = (e: WheelEvent) => {
-      if (!isLocked() || !e.deltaY) return;
-      a().wheel(e.deltaY > 0 ? 1 : -1);
+      if (!isLocked()) return;
+      e.preventDefault();
+      if (e.ctrlKey) return; // pinch
+      const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      const dx = Math.max(-120, Math.min(120, e.deltaX * px)), dy = Math.max(-120, Math.min(120, e.deltaY * px));
+      if (dx || dy) { a().poke(); a().turn(dx * SCROLL_TURN, dy * SCROLL_TURN); }
     };
     const onContext = (e: MouseEvent) => { if (isLocked()) e.preventDefault(); };
     const onLockChange = () => {
@@ -302,7 +317,7 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mouseup', onMouseUp);
-    document.addEventListener('wheel', onWheel, { passive: true });
+    document.addEventListener('wheel', onWheel, { passive: false });
     document.addEventListener('contextmenu', onContext);
     document.addEventListener('pointerlockchange', onLockChange);
     document.addEventListener('fullscreenchange', onFullscreen);
@@ -311,6 +326,7 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
       document.removeEventListener('fullscreenchange', onFullscreen);
       document.removeEventListener('webkitfullscreenchange', onFullscreen);
       if (turnFrame) cancelAnimationFrame(turnFrame);
+      if (breakTimer) clearInterval(breakTimer);
       kb?.unlock?.();
       releaseAll();
       window.removeEventListener('keydown', onKeyDown);

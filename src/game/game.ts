@@ -37,8 +37,10 @@ export type Input = {
   walk?: boolean;
   dig: boolean;
   placeTap: boolean; // consumed once per press
-  /** Keyboard (⌘/Ctrl + Shift held): dig what's under the crosshair, whatever tool is in hand. */
-  keyDig?: boolean;
+  /** Keyboard (⌘/Ctrl + Shift): break the block under the crosshair at once, whatever tool is in hand. */
+  keyBreak?: boolean;
+  /** One instant break this frame (from keyBreak). Consumed once per press. */
+  breakTap?: boolean;
   /** Keyboard (Shift pressed): place the selected block, whatever tool is in hand. Once per press. */
   keyPlace?: boolean;
 };
@@ -299,6 +301,7 @@ export class Game {
       this.carpet(dt, input);
       this.aim();
       this.updateDig(dt, input.dig);
+      if (input.breakTap) this.breakNow();
       if (input.placeTap) this.place();
       return;
     }
@@ -306,6 +309,7 @@ export class Game {
       this.fly(dt, input, jumpPressed);
       this.aim();
       this.updateDig(dt, input.dig);
+      if (input.breakTap) this.breakNow();
       if (input.placeTap) this.place();
       return;
     }
@@ -382,6 +386,7 @@ export class Game {
 
     this.aim();
     this.updateDig(dt, input.dig);
+    if (input.breakTap) this.breakNow();
     if (input.placeTap) this.place();
   }
 
@@ -505,18 +510,28 @@ export class Game {
       this.digSoundAt = 0.22;
       this.onSound('dig');
     }
-    if (this.digProgress >= 1) {
-      const was = this.world.get(t.x, t.y, t.z);
-      this.onSound('break');
-      this.onBreak(t.x, t.y, t.z, was);
-      this.world.set(t.x, t.y, t.z, Block.Air);
-      if (isTreasure(was)) this.onTreasure(was, t.x, t.y, t.z);
-      this.checkRift(t.x, t.y, t.z);
-      this.digProgress = 0;
-      this.dirty = true;
-      this.onBlockChanged(t.x, t.z);
-      this.onEdit(t.x, t.y, t.z, Block.Air);
-    }
+    if (this.digProgress >= 1) this.breakAt(t.x, t.y, t.z);
+  }
+
+  private breakAt(x: number, y: number, z: number) {
+    const was = this.world.get(x, y, z);
+    this.onSound('break');
+    this.onBreak(x, y, z, was);
+    this.world.set(x, y, z, Block.Air);
+    if (isTreasure(was)) this.onTreasure(was, x, y, z);
+    this.checkRift(x, y, z);
+    this.digProgress = 0;
+    this.dirty = true;
+    this.onBlockChanged(x, z);
+    this.onEdit(x, y, z, Block.Air);
+  }
+
+  /** Break the block under the crosshair right away, however hard it is (keyboard ⌘/Ctrl + Shift). */
+  breakNow(): boolean {
+    const t = this.target;
+    if (!t || !BLOCKS[this.world.get(t.x, t.y, t.z)].breakable) return false;
+    this.breakAt(t.x, t.y, t.z);
+    return true;
   }
 
   get dig() {

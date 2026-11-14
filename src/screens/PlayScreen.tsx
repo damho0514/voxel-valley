@@ -771,7 +771,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       } else if (xrayOn) { xrayOn = false; view.xray.set([]); }
       Object.assign(frameInput, input);
       // The keyboard's Shift (place) and ⌘/Ctrl + Shift (break) work with any tool in hand.
-      frameInput.dig = (!armed && !drawingRef.current && (input.dig || !!touch.hold)) || (!!input.keyDig && !game.flying);
+      frameInput.dig = !armed && !drawingRef.current && (input.dig || !!touch.hold);
+      frameInput.breakTap = !!input.keyBreak && !game.flying;
       frameInput.placeTap = (!armed && !drawingRef.current && (input.placeTap || (!!touch.tap && !consumed))) || (!!input.keyPlace && !game.flying);
       game.update(dt, frameInput, ready);
       // Where you are decides the music: the castle grounds, the car park above or below the street.
@@ -807,6 +808,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       input.turnPitch = 0;
       input.placeTap = false;
       input.keyPlace = false;
+      input.keyBreak = false;
       touch.tap = null;
 
       // Friends in the solo valley; robot citizens in the future city (in rooms too).
@@ -1288,7 +1290,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         else if (!weaponRef.current) inputRef.current.placeTap = true;
       },
       place: () => { inputRef.current.keyPlace = true; pacer.poke(); },
-      dig: (held) => { inputRef.current.keyDig = held; pacer.poke(); },
+      breakNow: () => { inputRef.current.keyBreak = true; pacer.poke(); },
       wheel: step,
       slot: pickSlot,
       board: showBoard,

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Voxel Valley",
     "slug": "voxel-valley-go",
-    "version": "1.0.0",
+    "version": "1.4.0",
     "orientation": "landscape",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -24,7 +24,8 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
-      "package": "com.damho0514.voxelvalley"
+      "package": "com.damho0514.voxelvalley",
+      "versionCode": 14
     },
     "web": {
       "favicon": "./assets/favicon.png"
