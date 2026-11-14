@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["VvThermalModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.vvthermal.VvThermalModule"]
+  }
+}

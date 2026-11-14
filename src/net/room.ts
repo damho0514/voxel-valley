@@ -3,15 +3,25 @@ import { CODE_ALPHABET, CODE_LENGTH, DimCode, PlayerInfo, SeasonName, ServerMsg 
 export { isRoomCode } from '../../server/src/protocol';
 export type { DimCode, PlayerInfo } from '../../server/src/protocol';
 
-/** Splits a room edit key ("x,y,z", "f:x,y,z" or "s:x,y,z") into its dimension and coordinates. */
+/** Splits a room edit key ("x,y,z", "f:x,y,z", "s:x,y,z" or "k:x,y,z") into its dimension and coordinates. */
 export function parseEditKey(key: string): [DimCode, number, number, number] {
-  const d: DimCode = key.startsWith('f:') ? 1 : key.startsWith('s:') ? 2 : 0;
+  const d: DimCode = key.startsWith('f:') ? 1 : key.startsWith('s:') ? 2 : key.startsWith('k:') ? 3 : 0;
   const [x, y, z] = (d ? key.slice(2) : key).split(',').map(Number);
   return [d, x, y, z];
 }
 
 /** wss://… of the room server. Set EXPO_PUBLIC_SERVER_URL to point at a local `wrangler dev`. */
 export const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'wss://voxel-valley-server.voxel-valley-server.workers.dev';
+
+/**
+ * One link for everyone (the /join/ page): it opens the room right away with nothing to install —
+ * Android goes into the app if it's there, otherwise every phone and computer plays in the
+ * browser. All of them meet on SERVER_URL.
+ */
+export const INVITE_BASE = 'https://damho0514.github.io/voxel-valley/join/';
+export const inviteUrl = (code: string) => `${INVITE_BASE}?room=${code}`;
+export const inviteMessage = (code: string, name: string) =>
+  `${name}님이 Voxel Valley에 초대했어요! 👇 누르면 설치 없이 바로 같은 월드로 들어와요 (방 ${code})\n${inviteUrl(code)}`;
 
 export const newRoomCode = () =>
   Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');

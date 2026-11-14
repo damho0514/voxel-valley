@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { crackTextures } from './textures';
 
-const CHIPS = 160;
+const CHIPS = 360;
 
 type Chip = { p: THREE.Vector3; v: THREE.Vector3; spin: THREE.Vector3; rot: THREE.Euler; life: number; size: number };
 
@@ -12,6 +12,9 @@ export class BreakEffects {
   private readonly chips: THREE.InstancedMesh;
   private live: Chip[] = [];
   private next = 0;
+  /** Chips still flying (when 0, update skips the whole buffer). */
+  private alive = 0;
+  private settled = true;
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly s = new THREE.Vector3();
@@ -62,12 +65,16 @@ export class BreakEffects {
       const slot = this.next;
       this.next = (this.next + 1) % CHIPS;
       this.live[slot] = chip;
+      this.alive = CHIPS; // re-count on the next update
+      this.settled = false;
       this.chips.instanceColor!.setXYZ(slot, c[0] * (0.85 + Math.random() * 0.25), c[1] * (0.85 + Math.random() * 0.25), c[2] * (0.85 + Math.random() * 0.25));
     }
     this.chips.instanceColor!.needsUpdate = true;
   }
 
   update(dt: number, daylight: number) {
+    if (this.settled) return;
+    let alive = 0;
     for (let i = 0; i < CHIPS; i++) {
       const c = this.live[i];
       if (!c || c.life <= 0) {
@@ -75,6 +82,7 @@ export class BreakEffects {
         this.chips.setMatrixAt(i, this.m);
         continue;
       }
+      alive++;
       c.life -= dt;
       c.v.y -= 18 * dt;
       const nx = c.p.x + c.v.x * dt, ny = c.p.y + c.v.y * dt, nz = c.p.z + c.v.z * dt;
@@ -92,6 +100,9 @@ export class BreakEffects {
       this.chips.setMatrixAt(i, this.m);
     }
     this.chips.instanceMatrix.needsUpdate = true;
+    // Once everything has landed and faded, stop touching the buffer until the next burst.
+    this.alive = alive;
+    if (!alive) this.settled = true;
     (this.chips.material as THREE.MeshBasicMaterial).color.setScalar(0.3 + 0.7 * daylight);
   }
 }

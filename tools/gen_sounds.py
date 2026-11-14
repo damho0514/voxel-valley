@@ -8,6 +8,7 @@ import array
 import math
 import os
 import random
+import sys
 import wave
 
 RATE = 22050
@@ -70,6 +71,18 @@ def blank(seconds):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    if sys.argv[1:] == ['money']:  # just the money sounds (quick to iterate on)
+        money_sounds()
+        return
+    if sys.argv[1:] == ['treasure']:  # just the treasure / chest sounds
+        treasure_sounds()
+        return
+    if sys.argv[1:] == ['store']:  # just the 꿀알바 store street loop
+        save('store.wav', store_music(), peak=0.45)
+        return
+    if sys.argv[1:] == ['intro']:  # just the launch intro stings
+        intro_sounds()
+        return
 
     b = blank(0.09)  # one scrape while digging
     noise(b, 0, 0.09, vol=0.5, smooth=0.55, decay=0.03, seed=3)
@@ -205,8 +218,138 @@ def main():
         tone(b, k * 0.09, 0.35, midi(n), vol=0.25, decay=0.15)
     save('tame.wav', b, peak=0.55)
 
+    zap_sound()
+    money_sounds()
+    treasure_sounds()
+    intro_sounds()
     save('future.wav', future_music(), peak=0.5)
     save('space.wav', space_music(), peak=0.55)
+    save('store.wav', store_music(), peak=0.45)
+
+
+def zap_sound():
+    """A laser zap: the drawn loop locks on before everything inside it blows up."""
+    b = blank(0.45)
+    tone(b, 0, 0.4, 1800, vol=0.3, freq_end=220, kind='tri', release=0.08)
+    tone(b, 0, 0.4, 1810, vol=0.2, freq_end=230, release=0.08)
+    noise(b, 0, 0.35, vol=0.18, smooth=0.2, decay=0.12, seed=31)
+    save('zap.wav', b, peak=0.55)
+
+
+def coin(buf, start, pitch=1.0, vol=0.3):
+    """One coin: a bright, slightly inharmonic metallic ting with a tiny click."""
+    for f, v, d in ((2093, 1.0, 0.16), (2637, 0.55, 0.12), (4186, 0.3, 0.07), (5590, 0.18, 0.05)):
+        tone(buf, start, 0.35, f * pitch, vol=vol * v, decay=d, attack=0.001, release=0.05)
+    noise(buf, start, 0.012, vol=vol * 0.5, smooth=0.1, decay=0.004, seed=int(start * 1000) + 7)
+
+
+def money_sounds():
+    """Earning and spending money."""
+    b = blank(0.36)  # one coin, while drawing
+    coin(b, 0, 1.0, 0.32)
+    coin(b, 0.055, 1.335, 0.22)
+    save('coin.wav', b, peak=0.5)
+
+    b = blank(1.1)  # a shower of coins: a stroke paid out
+    rng = random.Random(61)
+    t = 0.0
+    while t < 0.75:
+        coin(b, t, rng.choice((0.94, 1.0, 1.06, 1.12, 1.19)), 0.16 + rng.random() * 0.1)
+        t += 0.025 + rng.random() * 0.05
+    save('coins.wav', b, peak=0.6)
+
+    b = blank(2.0)  # jackpot: register "ka-ching", a flutter of notes, and a long coin rain
+    noise(b, 0, 0.06, vol=0.6, smooth=0.3, decay=0.02, seed=71)          # drawer clack
+    tone(b, 0, 0.08, 160, vol=0.4, freq_end=90, decay=0.03)
+    for k, n in enumerate((84, 88, 91, 96)):                                   # bell
+        tone(b, 0.08 + k * 0.012, 0.9, midi(n), vol=0.18, decay=0.35, attack=0.002)
+    for k in range(9):                                                         # banknotes riffling
+        noise(b, 0.15 + k * 0.045, 0.04, vol=0.22, smooth=0.6, sweep=0.2, decay=0.015, seed=80 + k)
+    rng = random.Random(91)
+    t = 0.25
+    while t < 1.6:
+        coin(b, t, rng.choice((0.9, 1.0, 1.06, 1.12, 1.19, 1.26)), 0.12 + rng.random() * 0.1)
+        t += 0.018 + rng.random() * 0.035
+    save('cash.wav', b, peak=0.62)
+
+    b = blank(0.75)  # bought something: a rising sparkle ending on a ching
+    for k, n in enumerate((72, 76, 79, 84, 88)):
+        tone(b, k * 0.055, 0.32, midi(n), vol=0.2, decay=0.12, kind='tri', release=0.06)
+    coin(b, 0.3, 1.0, 0.3)
+    coin(b, 0.36, 1.335, 0.22)
+    save('buy.wav', b, peak=0.55)
+
+    b = blank(0.3)  # not enough money: a soft low double buzz
+    tone(b, 0, 0.11, 196, vol=0.3, kind='tri', release=0.03)
+    tone(b, 0.14, 0.13, 165, vol=0.3, kind='tri', release=0.04)
+    save('deny.wav', b, peak=0.4)
+
+
+def wobble(buf, start, length, f0, f1=None, vib=0.0, vib_rate=6.0, vol=0.3, harmonics=((1, 1.0),), attack=0.01, release=0.08, decay=None):
+    """A note that slides from f0 to f1 with vibrato; `harmonics` makes it brassy or hollow."""
+    i0, n, phase = int(start * RATE), int(length * RATE), 0.0
+    f1 = f0 if f1 is None else f1
+    for i in range(n):
+        t = i / RATE
+        f = f0 + (f1 - f0) * (t / length)
+        f *= 1 + vib * math.sin(2 * math.pi * vib_rate * t)
+        phase += f / RATE
+        s = sum(v * math.sin(2 * math.pi * phase * h) for h, v in harmonics)
+        level = env(t, length, attack, release) * (math.exp(-t / decay) if decay else 1.0)
+        j = i0 + i
+        if j < len(buf):
+            buf[j] += vol * level * s
+
+
+BRASS = ((1, 1.0), (2, 0.6), (3, 0.45), (4, 0.25), (5, 0.12))
+
+
+def treasure_sounds():
+    """Digging up treasure and the (deliberately silly) chest opening."""
+    b = blank(1.5)  # drumroll building up while the chest shakes
+    t, k = 0.0, 0
+    while t < 1.35:
+        lvl = 0.25 + 0.75 * (t / 1.35)
+        noise(b, t, 0.05, vol=0.45 * lvl, smooth=0.25, decay=0.018, seed=200 + k)
+        tone(b, t, 0.05, 190, vol=0.18 * lvl, freq_end=150, decay=0.02)
+        t += 0.045 - 0.02 * (t / 1.35)
+        k += 1
+    save('drumroll.wav', b, peak=0.6)
+
+    b = blank(0.55)  # "boing!": the lid pops off
+    wobble(b, 0, 0.5, 180, 720, vib=0.18, vib_rate=22, vol=0.4, harmonics=((1, 1.0), (2, 0.3)), attack=0.004, release=0.15)
+    noise(b, 0, 0.05, vol=0.4, smooth=0.2, decay=0.015, seed=231)
+    save('pop.wav', b, peak=0.6)
+
+    b = blank(1.7)  # ta-da-daaa fanfare
+    for start, length, notes in ((0.0, 0.14, (72, 76)), (0.16, 0.14, (72, 76)), (0.32, 0.14, (72, 76)), (0.5, 1.1, (79, 84, 88))):
+        for n in notes:
+            wobble(b, start, length, midi(n), vib=0.006 if length > 0.5 else 0, vol=0.14, harmonics=BRASS, attack=0.015, release=0.12)
+    for k in range(12):  # sparkle on the last chord
+        tone(b, 0.55 + k * 0.07, 0.3, midi(96 + (k % 4) * 3), vol=0.05, decay=0.1, attack=0.002)
+    save('fanfare.wav', b, peak=0.62)
+
+    b = blank(2.3)  # sad trombone: wah, wah, wah, waaaah
+    for k, (n, length) in enumerate(((67, 0.42), (66, 0.42), (65, 0.42), (64, 1.0))):
+        start = k * 0.45
+        wobble(b, start, length, midi(n) / 2, midi(n - (0.6 if k == 3 else 0)) / 2, vib=0.03 if k == 3 else 0.008,
+               vib_rate=5.5, vol=0.3, harmonics=((1, 1.0), (2, 0.8), (3, 0.5), (4, 0.3), (6, 0.12)), attack=0.03, release=0.12)
+    save('fail.wav', b, peak=0.6)
+
+    b = blank(0.7)  # a gem: bright crystal arpeggio
+    for k, n in enumerate((88, 91, 95, 100)):
+        tone(b, k * 0.05, 0.45, midi(n), vol=0.18, decay=0.16, attack=0.001)
+        tone(b, k * 0.05, 0.45, midi(n) * 2.01, vol=0.05, decay=0.08, attack=0.001)
+    coin(b, 0.2, 1.5, 0.15)
+    save('gem.wav', b, peak=0.55)
+
+    b = blank(1.2)  # mystic effect: rising shimmer
+    noise(b, 0, 1.0, vol=0.2, smooth=0.95, sweep=0.4, attack=0.3, release=0.4)
+    wobble(b, 0, 1.0, 330, 990, vib=0.02, vib_rate=9, vol=0.12, harmonics=((1, 1.0), (1.5, 0.5), (2, 0.3)), attack=0.2, release=0.4)
+    rng = random.Random(251)
+    for k in range(16):
+        tone(b, 0.1 + rng.random() * 0.9, 0.2, midi(rng.choice((96, 98, 100, 103, 105))), vol=0.06, decay=0.06, attack=0.001)
+    save('magic.wav', b, peak=0.55)
 
 
 def loop_crossfade(b, seconds=0.6):
@@ -237,6 +380,31 @@ def future_music():
     return loop_crossfade(b)
 
 
+def store_music():
+    """The 24h store at 3 a.m.: a fridge hum, a faint tube buzz, vinyl crackle and a lazy, slightly
+    off lo-fi electric piano (original)."""
+    chord_len = 4.0
+    chords = [(50, 57, 60, 65), (48, 55, 59, 64), (46, 53, 57, 62), (45, 52, 55, 61)]
+    total = len(chords) * chord_len * 2
+    b = blank(total + 0.8)
+    tone(b, 0, total + 0.8, 60, vol=0.05, attack=0.5, release=0.5)  # compressor hum
+    tone(b, 0, total + 0.8, 120, vol=0.012, kind='tri', attack=0.5, release=0.5)  # tube buzz
+    noise(b, 0, total + 0.8, vol=0.012, smooth=0.97, attack=0.5, release=0.5, seed=401)
+    rng = random.Random(402)
+    for _ in range(int(total * 5)):  # crackle
+        noise(b, rng.random() * total, 0.004, vol=0.05 * rng.random(), smooth=0.1, decay=0.002, seed=rng.randint(0, 9999))
+    for rep in range(2):
+        for i, ch in enumerate(chords):
+            t0 = (rep * len(chords) + i) * chord_len
+            for k, n in enumerate(ch):  # a lazy strum, each note a hair late
+                for mult, amp in ((1, 1.0), (2, 0.35), (3, 0.12)):
+                    tone(b, t0 + k * 0.045, chord_len * 0.95, midi(n) * mult * 1.003, vol=0.03 * amp, decay=1.6, attack=0.01, release=0.3)
+            tone(b, t0, chord_len, midi(ch[0] - 12), vol=0.07, decay=1.2, release=0.3)
+            mel = rng.choice(ch[1:]) + 12
+            tone(b, t0 + 2.0 + rng.choice((0, 0.25, 0.5)), 1.2, midi(mel), vol=0.025, decay=0.5, release=0.3)
+    return loop_crossfade(b, 0.8)
+
+
 def organ(buf, start, length, freq, vol):
     """A breathy, organ-like tone: a few harmonics with a very slow swell."""
     for mult, amp in ((1, 1.0), (2, 0.5), (3, 0.22), (4, 0.18), (6, 0.06)):
@@ -263,6 +431,39 @@ def space_music():
         tone(b, t + 0.37, 3.0, midi(n), vol=0.02, decay=1.0, release=1.5)  # a soft echo
         t += rng.choice((1.5, 2.25, 3.0, 4.5))
     return loop_crossfade(b, 1.5)
+
+
+
+# Launch intro: letter blocks drop one by one ("tok"), then the logo slams in. The timings MUST match
+# INTRO_TIMING in src/ui/intro.tsx, because the animation is synced to this one file.
+INTRO_TIMING = {'intro.wav': (0.15, 0.075), 'intro_short.wav': (0.05, 0.022)}  # (first drop, gap)
+INTRO_FALL = 0.32    # seconds a block takes to fall
+INTRO_TILES = 11     # "VOXEL" + "VALLEY"
+INTRO_SLAM_AFTER = 0.10  # slam this long after the last block lands
+INTRO_NOTES = (55, 57, 60, 62, 64, 67, 69, 72, 74, 76, 79)  # rising pentatonic, one per block
+
+
+def intro_sounds():
+    for name, (first, gap) in INTRO_TIMING.items():
+        lands = [first + i * gap + INTRO_FALL for i in range(INTRO_TILES)]
+        slam = lands[-1] + INTRO_SLAM_AFTER
+        b = blank(slam + 1.6)
+        # a breathy rise while the blocks rain down, cut off by the slam
+        noise(b, first, slam - first, vol=0.22, smooth=0.9, sweep=0.55, attack=slam - first - 0.02, release=0.02, seed=211)
+        for k, t in enumerate(lands):  # each block: a woody "tok" with a little thump under it
+            n = INTRO_NOTES[k]
+            tone(b, t, 0.16, midi(n), vol=0.3, freq_end=midi(n) * 0.82, decay=0.045, kind='tri', attack=0.001)
+            tone(b, t, 0.08, 150, vol=0.35, freq_end=85, decay=0.025, attack=0.001)
+            noise(b, t, 0.02, vol=0.25, smooth=0.25, decay=0.006, seed=300 + k)
+        # the slam: a sub drop, a crunchy burst, a big bright chord and a sparkle on top
+        tone(b, slam, 0.7, 95, vol=0.9, freq_end=36, decay=0.22, attack=0.002)
+        noise(b, slam, 0.45, vol=0.55, smooth=0.6, sweep=0.9, decay=0.09, seed=333)
+        for n in (48, 60, 64, 67, 72):
+            tone(b, slam, 1.5, midi(n), vol=0.13, decay=0.55, kind='tri', attack=0.003, release=0.3)
+            tone(b, slam, 1.5, midi(n) * 1.004, vol=0.07, decay=0.6, attack=0.01, release=0.3)
+        for k, n in enumerate((84, 88, 91, 96, 100)):
+            tone(b, slam + 0.1 + k * 0.06, 0.5, midi(n), vol=0.1, decay=0.14, attack=0.002)
+        save(name, b, peak=0.8)
 
 
 if __name__ == '__main__':

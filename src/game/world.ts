@@ -1,6 +1,7 @@
 import { Block, BLOCKS, Dimension, isReplaceable, Season } from './blocks';
-import { CITY_GROUND, futureStructures, generateFuture, generateSpace, Placed, spaceStructures, valleyStructures } from './dimensions';
+import { CITY_GROUND, futureStructures, generateFuture, generateSpace, generateStore, Placed, spaceStructures, STORE_GROUND, storeStructures, valleyStructures } from './dimensions';
 import { Noise } from './noise';
+import { depositAt } from './treasure';
 
 export const CHUNK = 16;
 export const HEIGHT = 48;
@@ -34,7 +35,14 @@ export class Chunk {
 export class World {
   readonly noise: Noise;
   readonly chunks = new Map<string, Chunk>();
+  /** Player edits, "x,y,z" → block (what gets saved and synced). Write through `setEdit`. */
   readonly edits = new Map<string, Block>();
+  /** The same edits bucketed by chunk, so generating a chunk doesn't scan every edit ever made. */
+  private readonly editsByChunk = new Map<string, Map<string, [number, number, number, Block]>>();
+  // Most lookups (physics, raycasts, meshing) hit the same chunk as the one before.
+  private lastKeyX = NaN;
+  private lastKeyZ = NaN;
+  private lastChunk: Chunk | null = null;
 
   /** The block that covers the ground this season. */
   readonly ground: Block;
@@ -54,12 +62,16 @@ export class World {
   }
 
   chunk(cx: number, cz: number): Chunk {
+    if (cx === this.lastKeyX && cz === this.lastKeyZ && this.lastChunk) return this.lastChunk;
     const key = chunkKey(cx, cz);
     let c = this.chunks.get(key);
     if (!c) {
       c = this.generate(cx, cz);
       this.chunks.set(key, c);
     }
+    this.lastKeyX = cx;
+    this.lastKeyZ = cz;
+    this.lastChunk = c;
     return c;
   }
 
@@ -69,6 +81,17 @@ export class World {
 
   unload(cx: number, cz: number) {
     this.chunks.delete(chunkKey(cx, cz));
+    if (cx === this.lastKeyX && cz === this.lastKeyZ) this.lastChunk = null;
+  }
+
+  /** Records an edit without touching loaded chunk data (it's applied when the chunk generates). */
+  setEdit(key: string, b: Block) {
+    this.edits.set(key, b);
+    const [x, y, z] = key.split(',').map(Number);
+    const ck = chunkKey(toChunk(x), toChunk(z));
+    let bucket = this.editsByChunk.get(ck);
+    if (!bucket) this.editsByChunk.set(ck, (bucket = new Map()));
+    bucket.set(key, [x, y, z, b]);
   }
 
   get(x: number, y: number, z: number): Block {
@@ -78,7 +101,7 @@ export class World {
 
   set(x: number, y: number, z: number, b: Block) {
     if (y < 0 || y >= HEIGHT) return;
-    this.edits.set(`${x},${y},${z}`, b);
+    this.setEdit(`${x},${y},${z}`, b);
     this.chunk(toChunk(x), toChunk(z)).set(mod(x, CHUNK), y, mod(z, CHUNK), b);
   }
 
@@ -94,7 +117,7 @@ export class World {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           const px = x + dx, pz = z + dz;
           // In the city, stand on the street rather than a rooftop.
-          let y = this.dim === 'future' ? CITY_GROUND : HEIGHT - 2;
+          let y = this.dim === 'future' ? CITY_GROUND : this.dim === 'store' ? STORE_GROUND : HEIGHT - 2;
           while (y > 0 && !this.isSolid(px, y, pz)) y--;
           const ground = this.get(px, y, pz);
           const okGround = this.dim === 'valley' ? ground === this.ground || ground === Block.Sand : BLOCKS[ground].solid;
@@ -113,7 +136,7 @@ export class World {
   private structuresIn(cx: number, cz: number): Placed[] {
     if (!this.structures) {
       this.structures = new Map();
-      const all = this.dim === 'future' ? futureStructures() : this.dim === 'space' ? spaceStructures() : valleyStructures(this);
+      const all = this.dim === 'future' ? futureStructures() : this.dim === 'space' ? spaceStructures() : this.dim === 'store' ? storeStructures() : valleyStructures(this);
       for (const p of all) {
         const key = chunkKey(toChunk(p[0]), toChunk(p[2]));
         const list = this.structures.get(key) ?? [];
@@ -128,13 +151,11 @@ export class World {
     const c = new Chunk(cx, cz);
     if (this.dim === 'future') generateFuture(this, c);
     else if (this.dim === 'space') generateSpace(this, c);
+    else if (this.dim === 'store') generateStore(this, c);
     else this.generateValley(c);
     for (const [x, y, z, b] of this.structuresIn(cx, cz)) c.set(mod(x, CHUNK), y, mod(z, CHUNK), b);
     // Re-apply player edits for this chunk.
-    for (const [key, b] of this.edits) {
-      const [x, y, z] = key.split(',').map(Number);
-      if (toChunk(x) === cx && toChunk(z) === cz) c.set(mod(x, CHUNK), y, mod(z, CHUNK), b);
-    }
+    for (const [x, y, z, b] of this.editsByChunk.get(chunkKey(cx, cz))?.values() ?? []) c.set(mod(x, CHUNK), y, mod(z, CHUNK), b);
     return c;
   }
 
@@ -148,7 +169,7 @@ export class World {
         for (let y = 0; y <= top; y++) {
           let b: Block;
           if (y === 0) b = Block.Bedrock;
-          else if (y < top - 3) b = Block.Stone;
+          else if (y < top - 3) b = depositAt(this.noise, wx, y, wz, top - y) ?? Block.Stone;
           else if (shore) b = Block.Sand;
           else b = y === top ? this.ground : Block.Soil;
           c.set(lx, y, lz, b);

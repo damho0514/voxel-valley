@@ -30,7 +30,12 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "친구 캐릭터와 말로 대화할 때 마이크를 사용해요."
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -40,12 +45,39 @@
           }
         }
       ],
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "내 방 사진이나 스크린샷을 골라 게임 속 집으로 꾸며요.",
+          "cameraPermission": "내 공간을 찍어 게임 속 집으로 꾸며요.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "친구들과 말로 대화할 때 마이크를 사용해요.",
+          "speechRecognitionPermission": "말씀하신 내용을 알아듣고 친구 캐릭터가 대답하는 데 음성 인식을 사용해요.",
+          "androidSpeechRecognitionPackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts"
+          ]
+        }
+      ],
       [
         "./plugins/withReleaseSigning",
         {
           "name": "voxel-valley"
         }
       ]
-    ]
+    ],
+    "scheme": "voxelvalley",
+    "owner": "damho0514",
+    "extra": {
+      "eas": {
+        "projectId": "d94cf81c-bee3-49d1-90c0-20a606d1bb8b"
+      }
+    }
   }
 }

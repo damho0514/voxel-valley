@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["VvSfxModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.vvsfx.VvSfxModule"]
+  }
+}

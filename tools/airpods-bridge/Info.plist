@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.damho0514.voxelvalley.airpods</string>
+  <key>CFBundleName</key>
+  <string>VV AirPods</string>
+  <key>CFBundleDisplayName</key>
+  <string>Voxel Valley 에어팟 브리지</string>
+  <key>CFBundleExecutable</key>
+  <string>AirPodsBridge</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSMotionUsageDescription</key>
+  <string>에어팟의 머리 움직임으로 Voxel Valley 게임의 시점을 마우스처럼 움직입니다.</string>
+</dict>
+</plist>

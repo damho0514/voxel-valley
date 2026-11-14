@@ -1,0 +1,8 @@
+{
+  "name": "vv-thermal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Device heat and battery-saver state for Voxel Valley's frame pacing",
+  "main": "index.ts",
+  "license": "MIT"
+}

@@ -8,6 +8,7 @@ import { sound } from './src/audio/sound';
 import { Season, SEASON_INFO, SEASONS } from './src/game/blocks';
 import { clearSave, savedSeasons } from './src/game/storage';
 import { isRoomCode, newRoomCode } from './src/net/room';
+import { Intro } from './src/ui/intro';
 import { css, Mode, Profile } from './src/session';
 
 /*
@@ -89,6 +90,9 @@ export default function App() {
   const [profile, setProfile] = useState<Profile>({ name: '', color: AVATAR_COLORS[0] });
   const [joinCode, setJoinCode] = useState('');
   const [muted, setMuted] = useState(false);
+  // The boot intro plays over the title screen; the title music starts once it's done.
+  const [intro, setIntro] = useState(true);
+  const endIntro = () => { setIntro(false); sound.startMusic(); };
   const refreshSaves = () => { savedSeasons().then(setSaved); };
 
   // Once the title screen is up, fetch the game in the background so "start" feels instant.
@@ -101,11 +105,14 @@ export default function App() {
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
     refreshSaves();
-    sound.load().then(() => { setMuted(sound.muted); sound.startMusic(); });
+    sound.load().then(() => { setMuted(sound.muted); });
     AsyncStorage.getItem(PROFILE_KEY)
       .then((raw) => {
-        if (raw) setProfile(JSON.parse(raw) as Profile);
-        else setProfile({ name: `여행자${Math.floor(Math.random() * 900 + 100)}`, color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)] });
+        if (raw) { setProfile(JSON.parse(raw) as Profile); return; }
+        // First launch: make up a traveller and keep it, or the name changes on every start.
+        const fresh: Profile = { name: `여행자${Math.floor(Math.random() * 900 + 100)}`, color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)] };
+        setProfile(fresh);
+        AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(fresh)).catch(() => {});
       })
       .catch(() => {});
     // Links: ?join=CODE joins a room; ?autostart=1 jumps into the summer world (handy for testing).
@@ -115,6 +122,8 @@ export default function App() {
       const s = /[?&]season=(spring|summer|autumn|winter)/.exec(url)?.[1] as Season | undefined;
       if (join && isRoomCode(join[1])) setMode({ kind: 'guest', code: join[1] });
       else if (/[?&]autostart=1/.test(url)) setMode({ kind: 'solo', season: s ?? 'summer', fresh: false });
+      else return;
+      endIntro(); // a link goes straight in, no intro
     };
     Linking.getInitialURL().then(check).catch(() => {});
     const sub = Linking.addEventListener('url', (e) => check(e.url));
@@ -137,7 +146,8 @@ export default function App() {
         <StatusBar hidden />
         <LoadBoundary onExit={exit}>
           <Suspense fallback={<PlayLoading />}>
-            <Play mode={mode} profile={profile} onProfile={updateProfile} onExit={exit} />
+            <Play key={mode.kind === 'solo' ? `solo-${mode.season}` : `${mode.kind}-${mode.code}`} mode={mode} profile={profile} onProfile={updateProfile} onExit={exit}
+              onHost={mode.kind === 'solo' ? () => setMode({ kind: 'host', season: mode.season, code: newRoomCode(), fromSave: true }) : undefined} />
           </Suspense>
         </LoadBoundary>
       </GestureHandlerRootView>
@@ -203,6 +213,7 @@ export default function App() {
           </View>
         </View>
       </View>
+      {intro && <Intro onDone={endIntro} />}
     </GestureHandlerRootView>
   );
 }

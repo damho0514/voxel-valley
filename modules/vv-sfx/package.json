@@ -1,0 +1,7 @@
+{
+  "name": "vv-sfx",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Low-latency, non-blocking sound effects for Voxel Valley (SoundPool / AVAudioPlayer)",
+  "license": "MIT"
+}

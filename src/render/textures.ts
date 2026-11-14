@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { Block } from '../game/blocks';
+import { Block, PHOTO_BLOCKS, PHOTO_DEFAULT } from '../game/blocks';
 
 /**
  * Procedurally painted block textures (no image files, nothing copied): every tile is drawn
  * here from noise and simple shapes, in Voxel Valley's soft pastel palette.
  */
 export const TILE = 32;
-const COLS = 8;
-export const ATLAS = TILE * COLS; // 256 × 256, up to 64 tiles
+const COLS = 16;
+export const ATLAS = TILE * COLS; // 512 × 512, up to 256 tiles
 
 type RGB = [number, number, number];
 const hex = (h: number): RGB => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
@@ -184,6 +184,49 @@ P.moss_side = capped(P.moss_top, 0, 50);
 P.snow_side = capped(P.snow_top, 0, 51);
 P.drygrass_side = capped(P.drygrass_top, 0, 52);
 
+/** Stone with clusters of a gem poking out: faceted colour, a dark rim and a bright glint. */
+const ore = (gem: number, seed: number): Painter => {
+  // Fixed cluster centres per gem so each ore has its own recognisable pattern.
+  const spots = Array.from({ length: 5 }, (_, i) => ({
+    x: 4 + hash(i, 1, seed) * 24, y: 4 + hash(i, 2, seed) * 24, r: 2.6 + hash(i, 3, seed) * 2.4,
+  }));
+  return (x, y) => {
+    for (const sp of spots) {
+      const d = Math.hypot(x + 0.5 - sp.x, y + 0.5 - sp.y);
+      if (d > sp.r) continue;
+      if (d > sp.r - 0.9) return shade(hex(gem), 0.55) as RGB;
+      const facet = (x - sp.x) + (y - sp.y) < 0 ? 1.18 : 0.88;
+      if (x + 0.5 - sp.x < -sp.r * 0.25 && y + 0.5 - sp.y < -sp.r * 0.25 && d < sp.r * 0.6) return mix(hex(gem), hex(0xffffff), 0.75);
+      return shade(hex(gem), facet) as RGB;
+    }
+    return P.stone(x, y) as RGB;
+  };
+};
+
+/** Treasure chest: dark wood planks, gold corner bands, a lock plate on the sides. */
+const chest = (top: boolean): Painter => (x, y) => {
+  const gold = hex(0xf2c14e), wood = hex(0xa8692f), dark = hex(0x5a3416);
+  if (x < 2 || x > 29 || y < 2 || y > 29) return shade(gold, x < 1 || x > 30 || y < 1 || y > 30 ? 0.7 : 1) as RGB;
+  if (!top && y >= 11 && y <= 12) return shade(gold, 0.85) as RGB; // lid seam
+  if (top && (x === 9 || x === 22)) return gold;
+  if (!top && x >= 13 && x <= 18 && y >= 9 && y <= 17) {
+    // Lock plate with a keyhole.
+    const hole = (x === 15 || x === 16) && y >= 12 && y <= 15;
+    return hole ? hex(0x1d1208) : shade(gold, y === 9 || x === 13 || x === 18 ? 0.8 : 1.05) as RGB;
+  }
+  const plank = top ? x % 8 === 0 : y % 7 === 0;
+  return plank ? dark : (shade(wood, 1 + (fbm(x, y * 3, 60) - 0.5) * 0.3) as RGB);
+};
+
+/** Rune stone: dark violet rock with glowing carved lines. */
+const rune: Painter = (x, y) => {
+  const glyph =
+    (x === 16 && y > 5 && y < 26) || (y === 10 && x > 9 && x < 23) || (Math.abs(x - y) < 1 && x > 8 && x < 24) ||
+    (Math.abs(x + y - 31) < 1 && x > 18 && x < 26) || (Math.hypot(x - 16, y - 16) > 11 && Math.hypot(x - 16, y - 16) < 12.2);
+  if (glyph) return mix(hex(0xd9c8ff), hex(0xffffff), hash(x, y, 64) * 0.4);
+  return shade(hex(0x3a2a66), 0.85 + fbm(x, y, 65) * 0.4) as RGB;
+};
+
 /** A glass pane: almost clear in the middle, with a bright rim and a soft highlight. */
 const glass = (tint: number): Painter => (x, y) => {
   const rim = x < 2 || y < 2 || x > 29 || y > 29;
@@ -192,6 +235,166 @@ const glass = (tint: number): Painter => (x, y) => {
   if (rim) return [...mix(c, hex(0xffffff), 0.55), 235] as [number, number, number, number];
   if (hi) return [255, 255, 255, 150];
   return [...c, 70] as [number, number, number, number];
+};
+
+/** Colours of the 내 방 photo blocks (repainted by setPhotoTiles). */
+const photoColors = [...PHOTO_DEFAULT];
+/** A photo-colour block: the colour with a faint plaster grain and a soft bevelled edge. */
+const photoTile = (i: number): Painter => (x, y) => {
+  const n = fbm(x, y, 70 + i) - 0.5 + (hash(x, y, 80 + i) - 0.5) * 0.25;
+  const edge = x < 1 || y < 1 || x > 30 || y > 30 ? 0.88 : x < 2 || y < 2 ? 1.05 : 1;
+  return shade(hex(photoColors[i]), (1 + n * 0.09) * edge) as RGB;
+};
+
+/*
+ * 꿀알바 store street. Products are just colourful shapes (no brands, no text), the sign is a honey
+ * band with drips, and everything is drawn here like the other tiles.
+ */
+const inR = (x: number, y: number, x0: number, y0: number, x1: number, y1: number) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+const PACKS = [0xff5a5f, 0xffc23c, 0x3fb6ff, 0x5ad18a, 0xb07cff, 0xff8fc2, 0xff8a3c, 0xf2f2f2];
+/** Shelf: three levels of packets in random colours, a steel shelf edge under each level. */
+const shelf = (seed: number, cups: boolean): Painter => (x, y) => {
+  const level = Math.floor(y / 11); // 0..2 from the bottom of the tile (y up)
+  const ly = y - level * 11;
+  if (ly <= 1) return shade(hex(0xc3cad4), ly === 0 ? 0.75 : 1.05) as RGB; // shelf lip
+  if (x < 1 || x > 30) return hex(0x8a929c);
+  if (cups) {
+    // Cup noodles: a row of round-shouldered cups with a lid band.
+    const col = Math.floor(x / 5), cx = col * 5 + 2.5;
+    if (Math.abs(x + 0.5 - cx) > 2 + (ly - 2) * 0.05) return hex(0x30343c);
+    const c = hex(PACKS[(col * 3 + level + seed) % 3 === 0 ? 1 : (col + level) % 2 ? 0 : 7]);
+    if (ly >= 8) return shade(c, 1.15) as RGB;
+    if (ly === 5) return hex(0xffffff);
+    return shade(c, 0.95) as RGB;
+  }
+  const col = Math.floor(x / 6);
+  const h = 5 + Math.floor(hash(col, level, seed) * 4);
+  if (ly - 2 > h) return hex(0x30343c); // shadow above shorter packs
+  const c = hex(PACKS[Math.floor(hash(col, level, seed + 1) * PACKS.length)]);
+  if (x % 6 === 0) return shade(c, 0.7) as RGB;
+  if (ly - 2 === h) return shade(c, 1.2) as RGB;
+  return (ly === 4 && x % 6 > 1 && x % 6 < 5 ? mix(c, hex(0xffffff), 0.7) : c) as RGB; // a label stripe
+};
+const STORE: Record<string, Painter> = {
+  store_tile: (x, y) => {
+    if (x % 16 === 0 || y % 16 === 0) return hex(0xc9ccd2); // grout
+    const sheen = Math.abs(((x % 16) - (y % 16))) < 2 ? 1.04 : 1;
+    return shade(hex(0xf1f3f5), sheen * (0.98 + hash(x >> 2, y >> 2, 501) * 0.03)) as RGB;
+  },
+  store_wall: (x, y) => (x % 16 === 0 ? hex(0xdcd6cb) : (shade(hex(0xf4f1ea), 0.98 + fbm(x, y, 502) * 0.05) as RGB)),
+  store_sign: (x, y) => {
+    if (y >= 27) return y === 27 ? hex(0xfff3c4) : hex(0xffffff);
+    if (y <= 3) return hex(0x6b3d10);
+    // Honey drips hanging from the top band.
+    const drip = 27 - (3 + Math.floor(hash(x >> 2, 0, 503) * 9));
+    if (y > drip && y < 27) return mix(hex(0xff9d1e), hex(0xffd04a), (y - drip) / (27 - drip));
+    const hx = x % 8, hy = y % 7; // faint honeycomb
+    return (hx === 0 || hy === 0) && ((x >> 3) + (y / 7 | 0)) % 2 === 0 ? hex(0xffd96b) : hex(0xffc93c);
+  },
+  ceiling_light: (x, y) => {
+    if (x < 2 || y < 2 || x > 29 || y > 29) return hex(0xd6dbe2);
+    return x === 2 || y === 2 ? hex(0xffffff) : (shade(hex(0xf8fbff), 0.97 + 0.03 * Math.sin(x * 0.4)) as RGB);
+  },
+  shelf_side: shelf(510, false),
+  shelf_side2: shelf(520, false),
+  noodle_side: shelf(530, true),
+  shelf_top: (x, y) => (x < 1 || y < 1 || x > 30 || y > 30 ? hex(0x8a929c) : (shade(hex(0xc3cad4), 0.95 + hash(x, y, 511) * 0.08) as RGB)),
+  cooler_side: (x, y) => {
+    // Lit fridge doors. Glow blocks skip shading and bloom, so keep this mid-toned: the bottles must
+    // read as colours, not blow out to white.
+    if (x < 2 || x > 29 || y < 2 || y > 29) return hex(0x8c96a3); // door frame
+    if (x === 15 || x === 16) return hex(0x6f7883); // door split
+    const level = Math.floor((y - 2) / 9), ly = (y - 2) % 9;
+    if (ly === 0) return hex(0xa9c4dc); // lit shelf edge
+    const bx = Math.floor((x - 2) / 4), lx = (x - 2) % 4;
+    const c = hex([0x1f8fe0, 0xd8343c, 0x2fae5f, 0xe8a817, 0x8a52e0, 0xe86a1e, 0xc9d3dc][(bx + level * 3) % 7]);
+    if (lx === 0) return hex(0x3c5468); // dim gap between bottles
+    if (ly >= 7) return lx === 2 ? hex(0x1d2129) : hex(0x3c5468); // caps
+    if (Math.abs(x - y + 3) < 1) return hex(0xb8c8d8); // glass glare
+    return (ly === 3 ? mix(c, hex(0xffffff), 0.45) : shade(c, 0.85)) as RGB;
+  },
+  counter_side: (x, y) => (y >= 28 ? hex(0xf4f4f0) : y >= 26 ? hex(0x9a7a52) : (shade(hex(0xd9b98a), 0.92 + fbm(x * 3, y, 541) * 0.15) as RGB)),
+  counter_top: (x, y) => (shade(hex(0xf4f2ec), 0.97 + hash(x >> 1, y >> 1, 542) * 0.04) as RGB),
+  register_side: (x, y) => (inR(x, y, 6, 6, 25, 20) ? (inR(x, y, 8, 8, 23, 18) ? hex(0x6fd3ff) : hex(0x1d2129)) : (shade(hex(0x2e3440), 0.95 + hash(x, y, 543) * 0.08) as RGB)),
+  register_top: (x, y) => {
+    if (inR(x, y, 3, 14, 28, 29)) return inR(x, y, 5, 16, 26, 27) ? mix(hex(0x6fd3ff), hex(0xffffff), (y - 16) / 22) : hex(0x1d2129);
+    if (y < 12 && x > 3 && x < 28 && x % 4 !== 0 && y % 4 !== 0) return hex(0xdfe3ea); // keys
+    return hex(0x2e3440);
+  },
+  cig_side: (x, y) => {
+    if (x % 4 === 0 || y % 6 === 0) return hex(0x2a2f3a);
+    const c = hex([0xffffff, 0xd94040, 0x3a6fd6, 0x2fa86a, 0xf2c14e, 0x9a9aa8][Math.floor(hash(x >> 2, Math.floor(y / 6), 544) * 6)]);
+    return (y % 6 === 5 ? shade(c, 0.85) : c) as RGB;
+  },
+  coffee_side: (x, y) => {
+    if (inR(x, y, 9, 4, 22, 15)) return inR(x, y, 13, 5, 18, 10) ? hex(0xf4efe6) : hex(0x15110f); // cup bay + paper cup
+    if (inR(x, y, 14, 15, 17, 18)) return hex(0xb8bec6); // nozzle
+    if (inR(x, y, 22, 24, 24, 26)) return hex(0xff4040); // power light
+    if (inR(x, y, 7, 21, 20, 27)) return hex(0x5a4a40); // menu panel
+    return shade(hex(0x3a3330), 0.95 + hash(x, y, 545) * 0.08) as RGB;
+  },
+  microwave_side: (x, y) => {
+    if (x < 1 || y < 1 || x > 30 || y > 30) return hex(0xb9bec6);
+    if (inR(x, y, 3, 5, 21, 26)) return inR(x, y, 5, 7, 19, 24) ? (shade(hex(0x2a2f3a), 1 + (x + y) % 5 * 0.02) as RGB) : hex(0x9aa0a8);
+    if (x > 23 && x < 29 && y > 6 && y < 26 && y % 3 === 0) return hex(0x6a7078); // buttons
+    if (inR(x, y, 24, 22, 28, 25)) return hex(0x5fe08a); // display
+    return hex(0xf2f2f2);
+  },
+  hotwater_side: (x, y) => {
+    if (inR(x, y, 8, 10, 12, 13)) return hex(0xe03a3a);
+    if (inR(x, y, 19, 10, 23, 13)) return hex(0x3a7ae0);
+    if (inR(x, y, 9, 4, 22, 9)) return hex(0x2a2f3a); // drip tray
+    return shade(hex(0xc8ccd2), 0.9 + (x % 6) * 0.03) as RGB;
+  },
+  freezer_top: (x, y) => {
+    if (x < 2 || y < 2 || x > 29 || y > 29) return hex(0xf2f6fa);
+    const cell = (Math.floor(x / 6) + Math.floor(y / 6) * 5) % 6;
+    const c = hex([0xffc2d9, 0xfff1b8, 0xb8e8ff, 0xd4b48a, 0xc8f0c0, 0xffffff][cell]);
+    if (x % 6 === 0 || y % 6 === 0) return hex(0xdff2ff);
+    return (Math.abs(x - y) < 1.5 ? hex(0xffffff) : c) as RGB; // lid glare
+  },
+  freezer_side: (x, y) => (y > 22 && y < 27 ? hex(0x3f8fe0) : y >= 27 ? hex(0xe6ecf2) : (shade(hex(0xf6f8fa), 0.97 + hash(x, y, 546) * 0.03) as RGB)),
+  atm_side: (x, y) => {
+    if (inR(x, y, 6, 14, 25, 26)) return inR(x, y, 8, 16, 23, 24) ? mix(hex(0x7fd8ff), hex(0xffffff), (y - 16) / 20) : hex(0x1d2129);
+    if (inR(x, y, 9, 3, 22, 11)) return x % 3 === 0 || y % 3 === 0 ? hex(0x3a3f48) : hex(0xd8dde4); // keypad
+    if (y >= 28) return hex(0xffc23c);
+    return hex(0x2f6fd6);
+  },
+  trash_side: (x, y) => {
+    if (y >= 26) return hex(0x3a3f48);
+    if (x % 11 === 10) return hex(0x5a6068);
+    const c = hex([0x3f7fd6, 0xffc23c, 0x3fae5a][Math.min(2, Math.floor(x / 11))]);
+    if (inR(x % 11, y, 3, 18, 7, 22)) return hex(0xffffff); // recycling mark
+    return shade(c, 0.95 + hash(x, y, 547) * 0.08) as RGB;
+  },
+  trash_top: (x, y) => (inR(x % 11, y, 2, 12, 8, 19) ? hex(0x111317) : hex(0x5a6068)),
+  table_top: (x, y) => (x % 5 === 0 ? hex(0x2f8a46) : (shade(hex(0x3fae5a), 0.95 + hash(x, y, 548) * 0.08) as RGB)),
+  table_side: (x, y) => (y >= 27 || inR(x, y, 0, 0, 3, 26) || inR(x, y, 28, 0, 31, 26) ? hex(0x3fae5a) : y >= 24 ? hex(0x2f8a46) : [20, 24, 30, 0]),
+  chair_side: (x, y) => (y >= 14 && y <= 16 ? hex(0x2f66b8) : (y > 16 && x % 6 < 4) || inR(x, y, 0, 0, 3, 13) || inR(x, y, 28, 0, 31, 13) ? hex(0x3f7fd6) : [20, 24, 30, 0]),
+  parasol_top: (x, y) => (Math.floor((Math.atan2(y - 15.5, x - 15.5) + Math.PI) / (Math.PI / 4)) % 2 ? hex(0xf2f2f2) : hex(0xe8473c)),
+  parasol_side: (x, y) => (y < 6 ? (Math.floor(x / 4) % 2 ? hex(0xf2f2f2) : hex(0xe8473c)) : y < 8 ? hex(0xc8382e) : [0, 0, 0, 0]),
+  box_side: (x, y) => (inR(x, y, 13, 0, 18, 31) && y > 22 ? hex(0xd9c7a0) : inR(x, y, 4, 6, 12, 10) ? hex(0xf4f4f0) : (shade(hex(0xc89a62), 0.92 + fbm(x, y, 549) * 0.15) as RGB)),
+  box_top: (x, y) => (inR(x, y, 13, 0, 18, 31) ? hex(0xd9c7a0) : (shade(hex(0xc89a62), 0.95 + fbm(x, y, 550) * 0.12) as RGB)),
+  sidewalk: (x, y) => {
+    const row = Math.floor(y / 8), off = row % 2 ? 8 : 0;
+    if (y % 8 === 0 || (x + off) % 16 === 0) return hex(0x8f8a84);
+    return shade(hex([0xb9b4ad, 0xa9a49d, 0xc4bfb8][Math.floor(hash(Math.floor((x + off) / 16), row, 551) * 3)]), 0.97 + hash(x, y, 552) * 0.05) as RGB;
+  },
+  streetlight: (x, y) => mix(hex(0xffd27a), hex(0xfff6dc), 1 - Math.min(1, Math.hypot(x - 15.5, y - 15.5) / 18)),
+  brick: (x, y) => {
+    const row = Math.floor(y / 6), off = row % 2 ? 6 : 0;
+    if (y % 6 === 0 || (x + off) % 12 === 0) return hex(0x5c3a33);
+    return shade(hex(0x8a4a3c), 0.88 + hash(Math.floor((x + off) / 12), row, 553) * 0.2) as RGB;
+  },
+  shutter: (x, y) => (y % 4 === 0 ? hex(0x6f7680) : y % 4 === 1 ? hex(0xb9c0c8) : (shade(hex(0x9aa1aa), 0.96 + hash(x >> 3, y, 554) * 0.06) as RGB)),
+  staffdoor: (x, y) => {
+    if (x < 2 || x > 29) return hex(0x4a525c);
+    if (inR(x, y, 9, 18, 22, 26)) return hex(0x9fc4dc); // little window
+    if (inR(x, y, 23, 12, 26, 14)) return hex(0xd8dde4); // handle
+    return shade(hex(0x6f7a86), 0.97 + hash(x, y, 555) * 0.04) as RGB;
+  },
+  bedding: (x, y) => (Math.floor(x / 4 + y / 4) % 2 ? hex(0x7fa6e0) : ((x + y) % 8 === 0 ? hex(0xffffff) : hex(0x9fbcec))),
+  awning: (x, y) => (Math.floor(x / 4) % 2 ? hex(0xfff3e0) : y < 3 ? hex(0xd9781e) : hex(0xff9f2e)),
 };
 
 const TILES: [string, Painter][] = [
@@ -204,6 +407,11 @@ const TILES: [string, Painter][] = [
   ['crystal', P.crystal], ['station', P.station], ['ember', P.ember], ['ash', P.ash],
   ['glass', glass(0xe8f6ff)], ['glass_sky', glass(0x7cc8f2)], ['glass_rose', glass(0xf59ac0)],
   ['glass_amber', glass(0xf5c060)], ['glass_mint', glass(0x7fe0b0)], ['lava', P.lava],
+  ['ore_gold', ore(0xf2c14e, 91)], ['ore_ruby', ore(0xff3b5c, 92)], ['ore_sapphire', ore(0x3f7bff, 93)],
+  ['ore_emerald', ore(0x2fcf7d, 94)], ['ore_diamond', ore(0x8ff2ff, 95)],
+  ['chest_side', chest(false)], ['chest_top', chest(true)], ['rune', rune],
+  ...PHOTO_BLOCKS.map((_, i) => [`photo_${i}`, photoTile(i)] as [string, Painter]),
+  ...Object.entries(STORE),
 ];
 const TILE_INDEX = new Map(TILES.map(([name], i) => [name, i]));
 
@@ -245,6 +453,41 @@ const FACES: Partial<Record<Block, [string, string, string]>> = {
   [Block.GlassRose]: ['glass_rose', 'glass_rose', 'glass_rose'],
   [Block.GlassAmber]: ['glass_amber', 'glass_amber', 'glass_amber'],
   [Block.GlassMint]: ['glass_mint', 'glass_mint', 'glass_mint'],
+  [Block.GoldOre]: ['ore_gold', 'ore_gold', 'ore_gold'],
+  [Block.RubyOre]: ['ore_ruby', 'ore_ruby', 'ore_ruby'],
+  [Block.SapphireOre]: ['ore_sapphire', 'ore_sapphire', 'ore_sapphire'],
+  [Block.EmeraldOre]: ['ore_emerald', 'ore_emerald', 'ore_emerald'],
+  [Block.DiamondOre]: ['ore_diamond', 'ore_diamond', 'ore_diamond'],
+  [Block.Chest]: ['chest_top', 'chest_side', 'chest_top'],
+  [Block.Rune]: ['rune', 'rune', 'rune'],
+  ...Object.fromEntries(PHOTO_BLOCKS.map((b, i) => [b, [`photo_${i}`, `photo_${i}`, `photo_${i}`]])),
+  [Block.StoreTile]: ['store_tile', 'store_wall', 'store_tile'],
+  [Block.StoreWall]: ['store_wall', 'store_wall', 'store_wall'],
+  [Block.StoreSign]: ['store_wall', 'store_sign', 'store_wall'],
+  [Block.CeilingLight]: ['store_wall', 'ceiling_light', 'ceiling_light'],
+  [Block.ShelfSnack]: ['shelf_top', 'shelf_side', 'shelf_top'],
+  [Block.ShelfNoodle]: ['shelf_top', 'noodle_side', 'shelf_top'],
+  [Block.Cooler]: ['shelf_top', 'cooler_side', 'shelf_top'],
+  [Block.Counter]: ['counter_top', 'counter_side', 'counter_top'],
+  [Block.Register]: ['register_top', 'register_side', 'register_side'],
+  [Block.CigWall]: ['shelf_top', 'cig_side', 'shelf_top'],
+  [Block.CoffeeMachine]: ['shelf_top', 'coffee_side', 'shelf_top'],
+  [Block.Microwave]: ['shelf_top', 'microwave_side', 'shelf_top'],
+  [Block.HotWater]: ['shelf_top', 'hotwater_side', 'shelf_top'],
+  [Block.Freezer]: ['freezer_top', 'freezer_side', 'freezer_side'],
+  [Block.Atm]: ['shelf_top', 'atm_side', 'shelf_top'],
+  [Block.TrashBin]: ['trash_top', 'trash_side', 'trash_side'],
+  [Block.PlasticTable]: ['table_top', 'table_side', 'table_top'],
+  [Block.PlasticChair]: ['chair_side', 'chair_side', 'chair_side'],
+  [Block.Parasol]: ['parasol_top', 'parasol_side', 'parasol_top'],
+  [Block.DeliveryBox]: ['box_top', 'box_side', 'box_top'],
+  [Block.Sidewalk]: ['sidewalk', 'sidewalk', 'sidewalk'],
+  [Block.StreetLight]: ['streetlight', 'streetlight', 'streetlight'],
+  [Block.Brick]: ['brick', 'brick', 'brick'],
+  [Block.Shutter]: ['shutter', 'shutter', 'shutter'],
+  [Block.StaffDoor]: ['staffdoor', 'staffdoor', 'staffdoor'],
+  [Block.Bedding]: ['bedding', 'bedding', 'bedding'],
+  [Block.Awning]: ['awning', 'awning', 'awning'],
 };
 
 /** Tile index for a block face (face: 0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z). */
@@ -261,22 +504,34 @@ export const PORTAL_TINT: Partial<Record<Block, number>> = {
 
 let atlas: THREE.DataTexture | null = null;
 
+function paintTile(data: Uint8Array, i: number, paint: Painter) {
+  const ox = (i % COLS) * TILE, oy = Math.floor(i / COLS) * TILE;
+  for (let y = 0; y < TILE; y++)
+    for (let x = 0; x < TILE; x++) {
+      const [r, g, b, a = 255] = paint(x, y);
+      const o = ((oy + y) * ATLAS + ox + x) * 4;
+      data[o] = Math.max(0, Math.min(255, r));
+      data[o + 1] = Math.max(0, Math.min(255, g));
+      data[o + 2] = Math.max(0, Math.min(255, b));
+      data[o + 3] = Math.max(0, Math.min(255, a));
+    }
+}
+
+/** Repaints the 내 방 photo-block tiles in the live atlas (the GPU copy updates on the next frame). */
+export function setPhotoTiles(colors: number[]) {
+  PHOTO_BLOCKS.forEach((_, i) => { photoColors[i] = colors[i] ?? PHOTO_DEFAULT[i]; });
+  if (!atlas) return; // painted with these colours when it's first built
+  const data = atlas.image.data as Uint8Array;
+  PHOTO_BLOCKS.forEach((_, i) => paintTile(data, TILE_INDEX.get(`photo_${i}`)!, photoTile(i)));
+  atlas.needsUpdate = true;
+}
+
 /** The block atlas, painted once. Tiles are inset by half a texel in UVs to avoid bleeding. */
 export function blockAtlas(): THREE.DataTexture {
   if (atlas) return atlas;
   const data = new Uint8Array(ATLAS * ATLAS * 4);
-  TILES.forEach(([, paint], i) => {
-    const ox = (i % COLS) * TILE, oy = Math.floor(i / COLS) * TILE;
-    for (let y = 0; y < TILE; y++)
-      for (let x = 0; x < TILE; x++) {
-        const [r, g, b, a = 255] = paint(x, y);
-        const o = ((oy + y) * ATLAS + ox + x) * 4;
-        data[o] = Math.max(0, Math.min(255, r));
-        data[o + 1] = Math.max(0, Math.min(255, g));
-        data[o + 2] = Math.max(0, Math.min(255, b));
-        data[o + 3] = Math.max(0, Math.min(255, a));
-      }
-  });
+  TILES.forEach(([, paint], i) => paintTile(data, i, paint));
+  if (TILES.length > COLS * COLS) throw new Error('block atlas is full');
   atlas = new THREE.DataTexture(data, ATLAS, ATLAS, THREE.RGBAFormat);
   atlas.magFilter = THREE.NearestFilter; // crisp detail up close
   atlas.minFilter = THREE.LinearFilter;

@@ -42,3 +42,17 @@ yarn-error.*
 
 # wrangler local state
 .wrangler/
+
+# AirPods bridge build output
+/tools/airpods-bridge/build/
+
+# Native module build output
+/modules/*/android/build/
+
+# Python bytecode
+__pycache__/
+
+# Local editor/assistant settings (kept out of the repo)
+/CLAUDE.md
+/AGENTS.md
+/.claude/
