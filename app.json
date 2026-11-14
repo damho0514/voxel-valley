@@ -2,14 +2,14 @@
   "expo": {
     "name": "Voxel Valley",
     "slug": "voxel-valley-go",
-    "version": "1.5.1",
+    "version": "1.5.2",
     "orientation": "landscape",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.damho0514.voxelvalley",
-      "buildNumber": "16"
+      "buildNumber": "17"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,7 +26,7 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "package": "com.damho0514.voxelvalley",
-      "versionCode": 16
+      "versionCode": 17
     },
     "web": {
       "favicon": "./assets/favicon.png"
