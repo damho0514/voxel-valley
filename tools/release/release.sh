@@ -107,7 +107,7 @@ CI=1 npx expo start --web --port 8160 > "$WORK/metro-dev.log" 2>&1 &
 PIDS+=($!)
 wait_http http://localhost:8160/ || die "dev server did not start (see $WORK/metro-dev.log)"
 node "$HERE/smoke.mjs" dev "http://localhost:8160/" "$WORK/shots" || die "dev smoke failed (screens in $WORK/shots)"
-kill "${PIDS[-1]}" 2>/dev/null || true
+kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 
 # Version bump (in the working tree; committed only if everything passes).
 python3 - "$VERSION" "$NEWCODE" <<'PY'
@@ -242,7 +242,7 @@ grep -q "Bundled\|Bundling.*100" "$WORK/metro-go.log" || die "Expo Go never fini
 [ -z "$GOERR" ] || die "errors running in Expo Go:
 $GOERR"
 echo "  ✓ Expo Go on the simulator: bundled, into the game, no errors"
-kill "${PIDS[-1]}" 2>/dev/null || true
+kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 
 # ═══════════════════════════════ 7. iOS: native ═══════════════════════════════
 DEVICE_UDID=""
