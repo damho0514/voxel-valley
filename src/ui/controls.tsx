@@ -6,10 +6,11 @@ const STICK = 120;
 
 /**
  * Floating thumb stick: put your thumb down anywhere in the left zone and the stick centres there
- * (no hunting for a fixed pad). Reports a -1..1 vector (x right, y forward).
+ * (no hunting for a fixed pad). Reports a -1..1 vector (x right, y forward), and `run` while the
+ * thumb is pushed out past the rim (the knob turns gold).
  */
-export function Joystick({ onMove, side = 'left' }: { onMove: (x: number, y: number) => void; side?: 'left' | 'right' }) {
-  const [stick, setStick] = useState<{ cx: number; cy: number; x: number; y: number } | null>(null);
+export function Joystick({ onMove, side = 'left' }: { onMove: (x: number, y: number, run: boolean) => void; side?: 'left' | 'right' }) {
+  const [stick, setStick] = useState<{ cx: number; cy: number; x: number; y: number; run?: boolean } | null>(null);
   const center = useRef({ x: 0, y: 0 });
   const pan = usePanGesture({
     minDistance: 0,
@@ -21,14 +22,15 @@ export function Joystick({ onMove, side = 'left' }: { onMove: (x: number, y: num
     onUpdate: (e) => {
       let dx = e.x - center.current.x, dy = e.y - center.current.y;
       const len = Math.hypot(dx, dy), max = STICK / 2;
+      const run = len > max * 1.15;
       if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
       // A small dead zone, then full speed is reached a bit before the rim.
       const k = len < 6 ? 0 : 1 / (max * 0.85);
-      onMove(Math.max(-1, Math.min(1, dx * k)), Math.max(-1, Math.min(1, -dy * k)));
-      setStick({ cx: center.current.x, cy: center.current.y, x: dx, y: dy });
+      onMove(Math.max(-1, Math.min(1, dx * k)), Math.max(-1, Math.min(1, -dy * k)), run);
+      setStick({ cx: center.current.x, cy: center.current.y, x: dx, y: dy, run });
     },
     onFinalize: () => {
-      onMove(0, 0);
+      onMove(0, 0, false);
       setStick(null);
     },
   });
@@ -37,7 +39,7 @@ export function Joystick({ onMove, side = 'left' }: { onMove: (x: number, y: num
       <View style={side === 'left' ? styles.stickZone : styles.stickZoneRight} testID={side === 'left' ? 'joystick' : 'lookstick'}>
         {stick ? (
           <View pointerEvents="none" style={[styles.stick, { left: stick.cx - STICK / 2, top: stick.cy - STICK / 2 }]}>
-            <View style={[styles.knob, { transform: [{ translateX: stick.x }, { translateY: stick.y }] }]} />
+            <View style={[styles.knob, stick.run && styles.knobRun, { transform: [{ translateX: stick.x }, { translateY: stick.y }] }]} />
           </View>
         ) : (
           <View pointerEvents="none" style={[styles.stick, side === 'left' ? styles.stickIdle : styles.stickIdleRight]}>
@@ -149,6 +151,7 @@ const styles = StyleSheet.create({
   stickZoneRight: { position: 'absolute', right: 0, bottom: 122, width: '22%', height: '36%' }, // just above the jump button
   stickIdleRight: { right: 30, bottom: 6, opacity: 0.45 },
   knob: { width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,246,220,0.82)', borderWidth: 2, borderColor: 'rgba(242,195,91,0.9)' },
+  knobRun: { backgroundColor: 'rgba(242,195,91,0.95)', borderColor: '#fff3cf' },
   button: {
     position: 'absolute', width: 74, height: 74, borderRadius: 37, alignItems: 'center', justifyContent: 'center',
     opacity: 0.82,

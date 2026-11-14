@@ -19,7 +19,7 @@ const I = (emoji: string) => <Text style={styles.icon}>{emoji}</Text>;
 
 /** The core loop, one card per step. */
 const QUICK: { emoji: string; step: string; title: string; body: string }[] = [
-  { emoji: '🕹️', step: '1', title: '밀면 그쪽으로', body: '왼쪽 아래 아무 데나 엄지를 대고 밀어요. 그 방향으로 걷고 화면도 따라 돌아요.' },
+  { emoji: '🕹️', step: '1', title: '밀면 그쪽으로', body: '왼쪽 아래 아무 데나 엄지를 대고 밀어요. 그 방향으로 걷고 화면도 따라 돌아요. 원 밖까지 끝까지 밀면 달려요 (PC는 Shift).' },
   { emoji: '✏️', step: '2', title: '쓱 그리기', body: '블록 위를 손가락으로 그려요. 그린 블록이 금빛으로 빛나요.' },
   { emoji: '💥', step: '3', title: '한 번에 부수기', body: '오른쪽 액션 버튼(💥)을 탭하면 한꺼번에 부서지고 돈이 들어와요.' },
   { emoji: '⤒', step: '4', title: '점프', body: '오른쪽 아래 큰 버튼. 한 칸 턱은 저절로 넘어요.' },
@@ -30,6 +30,7 @@ const buildSections = (): Section[] => [
   {
     id: 'play', label: '🎮 버튼', items: [
       { icon: I('✦'), title: '액션 버튼', body: '점프 옆 큰 버튼 하나. 탭하면 지금 할 일(부수기 · 착륙 · 그리기). 꾹 누르면 링이 펼쳐져요 — 손가락을 밀어 둘러보기/그리기, 양탄자, 1인칭/3인칭, 용을 고르고 떼면 실행.' },
+      { icon: I('🏞️'), title: '계곡으로 돌아가기', body: '어느 세계든 도착한 자리 뒤에 돌아가는 문이 있어요. 멀리 왔다면 ☰ 메뉴나 액션 버튼 링의 🏞️로 바로 돌아가요.' },
       { icon: I('🧞'), title: '마법 양탄자', body: '액션 버튼 링에서 🧞. 스틱으로 방향, ▲▼로 높이. 액션 버튼을 탭하면 착륙해요.' },
       { icon: I('🎥'), title: '1인칭 / 3인칭', body: '오른쪽 위 👁 / 🎥 버튼으로 내 캐릭터를 보며 놀 수 있어요.' },
       { icon: I('⚔️'), title: '에너지 검', body: '아래 둘째 칸. 탭한 블록을 바로 캐요. 동물을 탭하면 펫이 돼요.' },

@@ -6,13 +6,14 @@ export type { DesktopActions, DesktopKey, DesktopState } from './desktop';
 
 /*
  * Keyboard + mouse for computer browsers, laid out like a Korean PC shooter's defaults
- * (Nexon's 서든어택 guide, https://guide.sa.nexon.com/guide/25): WASD, Shift walk, Ctrl crouch,
+ * (Nexon's 서든어택 guide, https://guide.sa.nexon.com/guide/25): WASD, Shift run, Ctrl crouch,
  * 1–5 weapon slots, Q previous weapon, R reload, Tab scoreboard, [ ] mouse speed, F special.
  *
  *   mouse            look (pointer lock: click the game to capture, Esc to let go)
  *   arrows           look, for playing without a mouse
  *   W A S D          walk · fly        Space · Enter  jump / rise (press again in mid-air: double jump)
- *   Shift            the tool's action: swing the blade (the default), flick the wand, or place
+ *   Shift            hold: run (about 1.75× walking speed, forward)
+ *   E                the tool's action: swing the blade (the default), flick the wand, or place
  *                    the selected block (only while a block slot is picked)
  *   ⌘ + Shift (Mac) · Ctrl + Shift (Windows)   hold: break the block at the crosshair (any tool)
  *   Alt              walk (slow, no footsteps)
@@ -197,8 +198,10 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
         breakTimer = setInterval(() => a().breakNow(), BREAK_REPEAT);
       } else if (!breaking && breakTimer) { clearInterval(breakTimer); breakTimer = null; }
       const walk = ALT.some((k) => held.has(k)), crouch = CROUCH.some((k) => held.has(k)) && !breaking;
+      // Shift alone runs; with ⌘/Ctrl it's the break combo instead.
+      const sprint = SHIFT.some((k) => held.has(k)) && !CMD.some((k) => held.has(k));
       a().down(crouch);
-      a().stance(walk, crouch);
+      a().stance(walk, crouch, sprint);
       attack();
       if (turning() && !turnFrame) { turnAt = performance.now(); turnFrame = requestAnimationFrame(turnStep); }
     };
@@ -243,8 +246,8 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
       // (Re-added on key repeat too: a Mac drops key-ups while ⌘ is held, see onKeyUp.)
       held.add(e.code);
       if (e.repeat) return;
-      // Shift on its own: the tool in hand's action (PlayScreen place()); with ⌘/Ctrl it breaks (applyMove).
-      if (SHIFT.includes(e.code) && !cmdHeld(e)) a().place();
+      // E: the tool in hand's action (PlayScreen place()). Shift runs, ⌘/Ctrl + Shift breaks (applyMove).
+      if (e.code === 'KeyE' && !cmdHeld(e)) a().place();
       applyMove();
       if (e.code === 'Tab') a().board(true);
       const digit = /^Digit([1-9])$/.exec(e.code);

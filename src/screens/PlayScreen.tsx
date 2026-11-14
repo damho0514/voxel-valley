@@ -58,6 +58,8 @@ import { newShotState, thirdPersonShot } from '../game/camera';
 
 const DIMS: Dimension[] = DIMENSIONS;
 const ZERO = { x: 0, y: 0, z: 0 };
+/** Running: a small widening of the view (as if moving at this speed). */
+const RUN_KICK = { x: 9, y: 0, z: 0 };
 const dimCode = (d: Dimension) => DIMS.indexOf(d) as DimCode;
 
 const hex = (c: [number, number, number]) =>
@@ -578,6 +580,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       nextEerie = nextStalker = 0;
       const info = DIMENSION_INFO[d];
       showPlaceRef.current(`${info.emoji} ${info.name}`, d === 'parking' ? `${PARK_LEVEL_NAMES[lastLevel]} · ${info.tagline}` : info.tagline);
+      // The way back is behind you on arrival, easy to miss: say so (and that ☰ / the ring can take you home).
+      if (d !== 'valley') setTimeout(() => say('↩ 뒤로 돌면 계곡으로 돌아가는 문 · ☰ 메뉴에서 바로 돌아갈 수도 있어요'), 2800);
       botsRef.current = [];
       deadBots = [];
       animalsRef.current = [];
@@ -849,7 +853,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       if (photoBuildRef.current) stepPhotoBuild(photoBuildRef.current, now);
       view.effects.setDig(game.dig, game.target?.x, game.target?.y, game.target?.z);
       // Speed streaks + FOV kick when flying fast in space or air-jumping in the city.
-      view.setMotion(game.flying || game.dim === 'space' ? game.velocity : game.dim === 'future' ? { x: 0, y: Math.max(0, game.body.vy) * 1.2, z: 0 } : ZERO, dt);
+      view.setMotion(game.flying || game.dim === 'space' ? game.velocity : game.dim === 'future' ? { x: 0, y: Math.max(0, game.body.vy) * 1.2, z: 0 } : game.sprinting ? RUN_KICK : ZERO, dt);
       // The black hole: the closer you drift, the harder the screen and the phone shake.
       const pull = game.blackHolePull;
       if (pull > 0.02) {
@@ -1281,6 +1285,15 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   };
   // Keyboard + mouse (desktop browsers). The handlers live in src/input/desktop.web.ts; here is
   // what each one does in the game. Rebound after every render so they see the current state.
+  /** Straight back to the valley from anywhere (lands by the gate you left it through). */
+  const goHome = () => {
+    const g = gameRef.current;
+    if (!g || g.dim === 'valley') return;
+    sound.play('tap');
+    setMenuOpen(false);
+    breakerRef.current?.end();
+    g.enterDimension('valley');
+  };
   /** The action button's ring (touch): whatever applies right now. */
   const dialItems: DialItem[] = [
     ...(drawing && !flying ? [{ id: 'cast', icon: '💥', label: '부수기', needsMarks: true }, { id: 'clear', icon: '✕', label: '표시 지우기', needsMarks: true }] : []),
@@ -1288,6 +1301,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     { id: 'carpet', icon: '🧞', label: flying ? '착륙' : '양탄자' },
     { id: 'view', icon: viewMode === 'first' ? '🎥' : '👁', label: viewMode === 'first' ? '3인칭' : '1인칭' },
     { id: 'dragon', icon: '🐉', label: dragon ? '용 보내기' : '용 부르기' },
+    ...(dim !== 'valley' ? [{ id: 'home', icon: '🏞️', label: '계곡으로' }] : []),
   ];
   const pickDial = (id: string) => {
     if (id === 'cast') castSpell();
@@ -1296,6 +1310,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     else if (id === 'carpet') toggleCarpet();
     else if (id === 'view') toggleView();
     else if (id === 'dragon') summonDragon();
+    else if (id === 'home') goHome();
   };
   const blocked = shopOpen || manualOpen || menuOpen || inviteOpen || chests.length > 0;
   const desk = useDesktopControls(desktop, deskActions as React.RefObject<DesktopActions>, blocked);
@@ -1344,7 +1359,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       move: (x, y) => { inputRef.current.moveX = x; inputRef.current.moveY = y; },
       jump: (held) => { inputRef.current.jump = held; },
       down: (held) => { inputRef.current.down = held; },
-      stance: (walk, crouch) => { inputRef.current.walk = walk; inputRef.current.crouch = crouch; },
+      stance: (walk, crouch, sprint) => { inputRef.current.walk = walk; inputRef.current.crouch = crouch; inputRef.current.sprint = !!sprint; },
       primary: (held) => {
         if (held === mouseRef.current.primary) return;
         mouseRef.current.primary = held;
@@ -1493,7 +1508,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
           {drawing && !flying && <MarkHint store={selStore} />}
         </>
       ) : (<>
-      <Joystick onMove={(x, y) => { pacer.poke(); inputRef.current.moveX = x; inputRef.current.moveY = y; }} />
+      <Joystick onMove={(x, y, run) => { pacer.poke(); inputRef.current.moveX = x; inputRef.current.moveY = y; inputRef.current.sprint = run; }} />
       {flying ? (
         <>
           <RoundButton testID="btn-up" label="▲" sub="상승" size={70} style={{ right: 140, bottom: 30 }} onDown={() => { pacer.poke(); inputRef.current.jump = true; }} onUp={() => { inputRef.current.jump = false; }} />
@@ -1569,6 +1584,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       {menuOpen && (
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
           <View style={styles.menu}>
+            {dim !== 'valley' && <MenuRow icon="🏞️" label="계곡으로 돌아가기" onPress={goHome} />}
             <MenuRow icon="🏮" label="장터 (무기 · 능력치 · 보석함)" onPress={openShop} />
             <MenuRow icon="📸" label="내 공간 제출 (사진→방)" onPress={openPhoto} />
             {!desktop && <MenuRow icon="🐉" label={dragon ? '용 돌려보내기' : '용 부르기'} onPress={() => { setMenuOpen(false); summonDragon(); }} />}

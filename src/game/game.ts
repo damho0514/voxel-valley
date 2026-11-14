@@ -33,8 +33,10 @@ export type Input = {
   down?: boolean; // space only: thrust downward
   /** Crouch (keyboard Ctrl · C): lower eye, slow, silent, no auto-jump. Ground only. */
   crouch?: boolean;
-  /** Walk (keyboard Shift): slow and silent. Ground only. */
+  /** Walk (keyboard Alt): slow and silent. Ground only. */
   walk?: boolean;
+  /** Run (keyboard Shift held, or the touch stick pushed past its rim): faster on the ground. */
+  sprint?: boolean;
   dig: boolean;
   placeTap: boolean; // consumed once per press
   /** Keyboard (⌘/Ctrl + Shift): break the block under the crosshair at once, whatever tool is in hand. */
@@ -44,6 +46,9 @@ export type Input = {
   /** Keyboard (Shift pressed): place the selected block, whatever tool is in hand. Once per press. */
   keyPlace?: boolean;
 };
+
+/** How much faster running is than walking. */
+const SPRINT = 1.75;
 
 /** Breaking takes half as long as a block's listed hardness (the user found digging too slow). */
 const DIG_SPEED = 2;
@@ -215,6 +220,8 @@ export class Game {
 
   /** 0 standing … 1 fully crouched (eased, so the camera glides down and up). */
   crouchT = 0;
+  /** Running this frame (for the camera's speed kick). */
+  sprinting = false;
 
   eye() {
     return { x: this.body.x, y: this.body.y + EYE_HEIGHT - CROUCH_DROP * this.crouchT, z: this.body.z };
@@ -325,7 +332,9 @@ export class Game {
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const swim = inWater(this.world, this.body);
     const quiet = (crouching || !!input.walk) && !swim;
-    const speed = WALK * this.walkMul * (swim ? 0.6 : 1) * (crouching && !swim ? CROUCH_SPEED : input.walk && !swim ? QUIET_WALK : 1);
+    // Running: only forward-ish, on foot, not while crouching, walking quietly or swimming.
+    this.sprinting = !!input.sprint && !crouching && !input.walk && !swim && input.moveY > 0.3;
+    const speed = WALK * this.walkMul * (swim ? 0.6 : 1) * (crouching && !swim ? CROUCH_SPEED : input.walk && !swim ? QUIET_WALK : this.sprinting ? SPRINT : 1);
     const mx = (input.moveX * cos - input.moveY * sin) * speed * dt;
     const mz = (-input.moveX * sin - input.moveY * cos) * speed * dt;
 

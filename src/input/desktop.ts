@@ -17,7 +17,7 @@ export type DesktopActions = {
   /** Sink while flying (Ctrl · C). */
   down: (held: boolean) => void;
   /** On the ground: Alt walks slowly and silently; Ctrl · C crouch. */
-  stance: (walk: boolean, crouch: boolean) => void;
+  stance: (walk: boolean, crouch: boolean, sprint?: boolean) => void;
   /** Left button held / released. */
   primary: (held: boolean) => void;
   /** Right button pressed. */
