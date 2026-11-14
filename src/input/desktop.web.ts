@@ -12,7 +12,8 @@ export type { DesktopActions, DesktopKey, DesktopState } from './desktop';
  *   mouse            look (pointer lock: click the game to capture, Esc to let go)
  *   arrows           look, for playing without a mouse
  *   W A S D          walk · fly        Space · Enter  jump / rise (press again in mid-air: double jump)
- *   Shift            place the selected block at the crosshair (any tool in hand)
+ *   Shift            the tool's action: swing the blade (the default), flick the wand, or place
+ *                    the selected block (only while a block slot is picked)
  *   ⌘ + Shift (Mac) · Ctrl + Shift (Windows)   hold: break the block at the crosshair (any tool)
  *   Alt              walk (slow, no footsteps)
  *   Ctrl · C         crouch · sink while flying
@@ -242,7 +243,7 @@ export function useDesktopControls(enabled: boolean, actions: RefObject<DesktopA
       // (Re-added on key repeat too: a Mac drops key-ups while ⌘ is held, see onKeyUp.)
       held.add(e.code);
       if (e.repeat) return;
-      // Shift on its own places a block; with ⌘/Ctrl it breaks instead (applyMove).
+      // Shift on its own: the tool in hand's action (PlayScreen place()); with ⌘/Ctrl it breaks (applyMove).
       if (SHIFT.includes(e.code) && !cmdHeld(e)) a().place();
       applyMove();
       if (e.code === 'Tab') a().board(true);

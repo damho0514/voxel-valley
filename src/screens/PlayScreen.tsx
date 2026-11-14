@@ -5,9 +5,9 @@ import { Gyroscope } from 'expo-sensors';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import * as THREE from 'three';
-import { sound } from '../audio/sound';
+import { EERIE, sound } from '../audio/sound';
 import { Block, BLOCKS, Dimension, DIMENSION_INFO, DIMENSIONS } from '../game/blocks';
-import { PARK_LEVEL_NAMES, parkingLevelAt } from '../game/darkworlds';
+import { MAZE_FLOOR, PARK_LEVEL_NAMES, parkingLevelAt } from '../game/darkworlds';
 import { spawnGuides } from '../game/guides';
 import { trackAt } from '../game/zones';
 import { addTime, report, time } from '../game/prof';
@@ -20,7 +20,8 @@ import { InvitePanel } from '../ui/invite';
 import { RIFT_SWAP, RiftVortex } from '../ui/rift';
 import { VoxelRenderer } from '../render/renderer';
 import { Joystick, TouchPad } from '../ui/controls';
-import { CastButton, makeStore, Pill, RoundButton, THEME } from '../ui/hud';
+import { makeStore, Pill, RoundButton, THEME } from '../ui/hud';
+import { ActionDial, DialItem } from '../ui/actionDial';
 import { ClickToPlay, HeadChip, KeyHints, MarkHint } from '../ui/desktopHud';
 import { useHeadAim } from '../input/head';
 import { useInputDevice } from '../input/device';
@@ -48,7 +49,7 @@ import { decodeSnap } from '../photo/capture';
 import type { Snap } from '../photo/types';
 import { FrameSpot, loadPhotoRoom, savePhotoRoom } from '../photo/store';
 import { css, LookMode, Mode, Profile, ViewMode } from '../session';
-import { raycast } from '../game/raycast';
+import { newShotState, thirdPersonShot } from '../game/camera';
 
 /*
  * The in-game screen. It pulls in three.js, the renderer, the world generator and the native
@@ -113,8 +114,10 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   /** The 꿀알바 rift swirl is on screen (dug too deep in the valley). */
   const [rift, setRift] = useState(false);
   const [hurtFlash] = useState(() => new Animated.Value(0));
-  const [weapon, setWeapon] = useState(false);
-  const weaponRef = useRef(false);
+  // You start with the blade in hand: taps and Shift swing it (into thin air if there's nothing
+  // there). Blocks are placed only after you pick a block slot.
+  const [weapon, setWeapon] = useState(true);
+  const weaponRef = useRef(true);
   const [hp, setHp] = useState(100);
   const animalsRef = useRef<Bot[]>([]);
   const petsRef = useRef<Bot[]>([]);
@@ -150,8 +153,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   // the view doesn't cover, which put taps off their targets).
   const screen = useRef({ width, height });
   // The drawing tool (draw over blocks to smash them for money) is in hand from the start.
-  const [drawing, setDrawing] = useState(true);
-  const drawingRef = useRef(true);
+  const [drawing, setDrawing] = useState(false);
+  const drawingRef = useRef(false);
   /** How many blocks are marked for the 💥 button (its own store: changes many times a second). */
   const [selStore] = useState(() => makeStore({ count: 0, cap: 0 }));
   const [flying, setFlying] = useState(false);
@@ -315,6 +318,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     const timer = setInterval(() => { if (gameRef.current?.dirty) { gameRef.current.dirty = false; save(); } }, 8000);
     return () => {
       alive.current = false;
+      sound.setTrack('valley'); // back on the title screen: the original music, wherever you left off
       sub.remove();
       clearInterval(timer);
       save();
@@ -406,6 +410,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     };
     viewRef.current = view;
     view.setWand(!weaponRef.current);
+    view.setWeapon(weaponRef.current);
     // The last photo room in this world: its colours, and the photo on its wall.
     loadPhotoRoom(photoKey).then(async (rec) => {
       if (!rec || !alive.current) return;
@@ -441,7 +446,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
           notify(Haptics.NotificationFeedbackType.Success);
           // A fountain of gold where the spell landed.
           const t = game.target ?? null;
-          const c = view.camera.position, d = game.lookDir();
+          const c = view.camera.position, d = game.aimDir();
           const fx0 = t ? t.x + 0.5 : c.x + d.x * 6, fy0 = t ? t.y + 1 : c.y + d.y * 6, fz0 = t ? t.z + 0.5 : c.z + d.z * 6;
           view.sparks.burst(fx0, fy0, fz0, [[1, 0.84, 0.3], [1, 0.95, 0.7], [1, 0.6, 0.2]], { count: 160, speed: 6, up: 7, life: 1.6, size: 0.32, spread: 1.2 });
         } else {
@@ -561,6 +566,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       sound.setTrack(trackAt(d, game.body.x, game.body.y, game.body.z));
       sound.arrive(d);
       lastLevel = d === 'parking' ? parkingLevelAt(game.body.y) : -1;
+      stalker = null;
+      nextEerie = nextStalker = 0;
       const info = DIMENSION_INFO[d];
       showPlaceRef.current(`${info.emoji} ${info.name}`, d === 'parking' ? `${PARK_LEVEL_NAMES[lastLevel]} · ${info.tagline}` : info.tagline);
       botsRef.current = [];
@@ -592,6 +599,45 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     let petsPlaced = false;
     /** Which car-park floor you were last on (-1 elsewhere), and when the place's sound was last checked. */
     let lastLevel = -1, lastZone = 0;
+    /**
+     * The 노란 방's haunting: small strange sounds now and then (quiet, from nowhere), and once in a
+     * while a tall figure at the far end of the corridor you're looking down. It is gone when you
+     * get close, or when you look away for long enough.
+     */
+    let nextEerie = 0, nextStalker = 0;
+    let stalker: { x: number; z: number; until: number } | null = null;
+    const haunt = (now: number) => {
+      if (!nextEerie) { nextEerie = now + 6000; nextStalker = now + 25000; }
+      if (now > nextEerie) {
+        nextEerie = now + 9000 + Math.random() * 14000;
+        sound.play(EERIE[Math.floor(Math.random() * EERIE.length)]);
+      }
+      const b = game.body;
+      if (stalker) {
+        const d = Math.hypot(stalker.x - b.x, stalker.z - b.z);
+        if (d < 5.5 || now > stalker.until) {
+          if (d < 5.5) { sound.play('eerie_breath'); buzz(Haptics.ImpactFeedbackStyle.Light); }
+          stalker = null;
+          view.setStalker(null);
+          nextStalker = now + 35000 + Math.random() * 35000;
+        }
+        return;
+      }
+      if (now < nextStalker) return;
+      // Look down the corridor ahead: the figure stands 9–12 blocks off, where the panels' light still
+      // reaches (any further and the dark swallows it).
+      const fx = -Math.sin(game.yaw), fz = -Math.cos(game.yaw), y = MAZE_FLOOR + 1;
+      let t = 1.5;
+      for (; t < 24; t += 0.5) {
+        const x = Math.floor(b.x + fx * t), z = Math.floor(b.z + fz * t);
+        if (game.world.isSolid(x, y, z) || game.world.isSolid(x, y + 1, z) || game.world.isSolid(x, y + 2, z)) break;
+      }
+      if (t < 10) { nextStalker = now + 2000; return; } // try again when there's a long view
+      const at = Math.min(t - 1, 9 + Math.random() * 3);
+      const sx = b.x + fx * at, sz = b.z + fz * at;
+      stalker = { x: sx, z: sz, until: now + 4500 + Math.random() * 2500 };
+      view.setStalker({ x: sx, y, z: sz, yaw: Math.atan2(b.x - sx, b.z - sz) + Math.PI });
+    };
     view.onFlicker = () => {
       buzz(Haptics.ImpactFeedbackStyle.Light);
       if (Math.random() < 0.35) sound.play('creak');
@@ -603,11 +649,14 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       pet.pet = true;
       return pet;
     });
+    /** Pets stay behind at the dark gate: nothing follows you into the yellow room or the car park. */
+    const NO_PETS: Bot[] = [];
+    const petsHere = () => (game.dim === 'maze' || game.dim === 'parking' ? NO_PETS : petsRef.current);
 
     /** Nearest bot/animal/pet whose body the ray passes through (within reach). */
     const pickEntity = (o: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, max: number) => {
       let best: { bot: Bot; t: number } | null = null;
-      for (const b of [...botsRef.current, ...animalsRef.current, ...petsRef.current]) {
+      for (const b of [...botsRef.current, ...animalsRef.current, ...petsHere()]) {
         const h = b.species ? 0.7 : 1.9, r = b.species ? 0.55 : 0.6;
         const cx = b.body.x - o.x, cy = b.body.y + h / 2 - o.y, cz = b.body.z - o.z;
         const t = cx * dir.x + cy * dir.y + cz * dir.z;
@@ -681,7 +730,9 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
     const frameInput: Input = { ...input };
     const avatarBuf: Avatar[] = [];
     let roll = 0, flyClock = 0, lastGust = 0, camDist = 0, handsHidden = false;
+    const shot = newShotState();
     const camOrigin = { x: 0, y: 0, z: 0 };
+    const camDir = { x: 0, y: 0, z: -1 };
     const lastBody = { x: game.body.x, y: game.body.y, z: game.body.z };
     let lastBuildSound = 0, lastBuildSpark = 0;
     /** Lays every block that's due, with a patter of taps and sparkles; at the end, hangs the photo. */
@@ -731,7 +782,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       let consumed = false;
       const armed = weaponRef.current;
       if (touch.tap || (armed && touch.hold && now - lastSwing > 260)) {
-        const dir = game.aimRay ?? game.lookDir();
+        const dir = game.aimRay ?? game.aimDir();
         if (view.dragon && touch.tap) {
           consumed = true;
           if (now - lastBreath > 700) {
@@ -785,7 +836,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
             lastLevel = lv;
             showPlaceRef.current(`🅿️ ${PARK_LEVEL_NAMES[lv]}`, lv < 4 ? '지하' : lv === PARK_LEVEL_NAMES.length - 1 ? '하늘이 보인다' : '지상');
           }
-        } else if (game.dim === 'maze' && Math.random() < 0.02) sound.play('creak');
+        } else if (game.dim === 'maze') haunt(now);
       }
       if (photoBuildRef.current) stepPhotoBuild(photoBuildRef.current, now);
       view.effects.setDig(game.dig, game.target?.x, game.target?.y, game.target?.z);
@@ -834,13 +885,13 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       // Pets appear beside you whenever you arrive somewhere.
       if (ready && !petsPlaced) {
         petsPlaced = true;
-        petsRef.current.forEach((p, i) => {
+        petsHere().forEach((p, i) => {
           const [x, y, z] = game.world.findSpawn(Math.floor(game.body.x) + 1 + (i % 3), Math.floor(game.body.z) + 2 + Math.floor(i / 3));
           Object.assign(p.body, { x, y, z, vy: 0 });
         });
       }
       const step = Math.min(dt, 0.05);
-      for (const list of [botsRef.current, animalsRef.current, petsRef.current]) for (const bot of list) bot.update(game.world, step, game.body);
+      for (const list of [botsRef.current, animalsRef.current, petsHere()]) for (const bot of list) bot.update(game.world, step, game.body);
 
       const room = roomRef.current;
       const d = dimCode(game.dim);
@@ -856,7 +907,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
           a.tool = undefined; a.act = undefined; a.aim = undefined; a.look = 'me';
           na++;
         }
-      for (const list of [botsRef.current, animalsRef.current, petsRef.current])
+      for (const list of [botsRef.current, animalsRef.current, petsHere()])
         for (const b of list) {
           const a = slot();
           a.id = b.id; a.color = b.color; a.x = b.body.x; a.y = b.body.y; a.z = b.body.z; a.yaw = b.yaw;
@@ -913,28 +964,28 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         if (flySpeed > 10 && now - lastGust > 2600 + Math.random() * 1500) { lastGust = now; sound.play('whoosh'); }
       }
       view.camera.rotation.set(game.pitch, game.yaw, roll);
-      // Third person: the camera glides back over the right shoulder (and comes forward if a
-      // wall is in the way), the hands give way to your whole character.
+      // Third person: the camera glides back over the right shoulder, the hands give way to your
+      // whole character. It never goes into a wall: with no room behind (a corridor, a corner) it
+      // rises over your head and looks down, so you see yourself and the way ahead (game/camera.ts).
       const wantDist = viewModeRef.current === 'third' ? (game.flying ? 5.2 : 4.2) : 0;
       camDist += (wantDist - camDist) * Math.min(1, dt * 7);
       if (camDist > 0.05) {
-        const d = game.lookDir();
-        const rx = Math.cos(game.yaw), rz = -Math.sin(game.yaw);
-        const u = camDist / 4.2;
-        // Back along the view, a little up and to the right.
-        const bx = -d.x * camDist + rx * 0.55 * u, by = -d.y * camDist + 0.45 * u, bz = -d.z * camDist + rz * 0.55 * u;
-        const len = Math.hypot(bx, by, bz);
         const c = view.camera.position;
-        const hit = raycast(game.world, c.x, c.y, c.z, bx / len, by / len, bz / len, len + 0.4);
-        const t = hit ? Math.max(0.25, Math.hypot(hit.x + 0.5 - c.x, hit.y + 0.5 - c.y, hit.z + 0.5 - c.z) - 0.75) / len : 1;
-        const k = Math.min(1, t);
-        c.set(c.x + bx * k, c.y + by * k, c.z + bz * k);
+        const s = thirdPersonShot(game.world, c, game.yaw, game.pitch, camDist, shot, dt);
+        c.set(s.x, s.y, s.z);
+        view.camera.rotation.x = s.pitch;
         camOrigin.x = c.x; camOrigin.y = c.y; camOrigin.z = c.z;
         game.viewOrigin = camOrigin;
-        game.viewExtra = len * k;
+        game.viewExtra = s.dist;
+        // Aim where the camera looks (it may be tilted down more than you are).
+        const cp = Math.cos(s.pitch);
+        camDir.x = -Math.sin(game.yaw) * cp; camDir.y = Math.sin(s.pitch); camDir.z = -Math.cos(game.yaw) * cp;
+        game.viewDir = camDir;
       } else {
         game.viewOrigin = null;
         game.viewExtra = 0;
+        game.viewDir = null;
+        shot.back = 0; shot.tight = 0;
       }
       const thirdNow = camDist > 0.6;
       if (thirdNow !== handsHidden) { handsHidden = thirdNow; view.setHands(!thirdNow); }
@@ -974,7 +1025,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         setHp(Math.round((game.hp / game.maxHp) * 100));
         const friends = [
           ...botsRef.current.filter((b) => !b.robot).map((b) => ({ id: b.id, name: `${b.name} (봇)`, color: b.color })),
-          ...petsRef.current.map((p) => ({ id: p.id, name: `❤️ ${SPECIES_INFO[p.species!].name}`, color: p.color })),
+          ...(game.dim === 'maze' || game.dim === 'parking' ? [] : petsRef.current).map((p) => ({ id: p.id, name: `❤️ ${SPECIES_INFO[p.species!].name}`, color: p.color })),
         ];
         const robots = botsRef.current.filter((b) => b.robot).length;
         setLocals((prev) => prev.robots === robots && prev.friends.length === friends.length
@@ -1222,6 +1273,22 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
   };
   // Keyboard + mouse (desktop browsers). The handlers live in src/input/desktop.web.ts; here is
   // what each one does in the game. Rebound after every render so they see the current state.
+  /** The action button's ring (touch): whatever applies right now. */
+  const dialItems: DialItem[] = [
+    ...(drawing && !flying ? [{ id: 'cast', icon: '💥', label: '부수기', needsMarks: true }, { id: 'clear', icon: '✕', label: '표시 지우기', needsMarks: true }] : []),
+    ...(!flying ? [{ id: 'mode', icon: drawing ? '👀' : '✏️', label: drawing ? '둘러보기' : '그리기' }] : []),
+    { id: 'carpet', icon: '🧞', label: flying ? '착륙' : '양탄자' },
+    { id: 'view', icon: viewMode === 'first' ? '🎥' : '👁', label: viewMode === 'first' ? '3인칭' : '1인칭' },
+    { id: 'dragon', icon: '🐉', label: dragon ? '용 보내기' : '용 부르기' },
+  ];
+  const pickDial = (id: string) => {
+    if (id === 'cast') castSpell();
+    else if (id === 'clear') clearMarks();
+    else if (id === 'mode') toggleMode();
+    else if (id === 'carpet') toggleCarpet();
+    else if (id === 'view') toggleView();
+    else if (id === 'dragon') summonDragon();
+  };
   const blocked = shopOpen || manualOpen || menuOpen || inviteOpen || chests.length > 0;
   const desk = useDesktopControls(desktop, deskActions as React.RefObject<DesktopActions>, blocked);
   const head = useHeadAim(desktop && desk.locked && !blocked, deskActions);
@@ -1289,7 +1356,15 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         if (drawingRef.current && !flyingRef.current) castSpell();
         else if (!weaponRef.current) inputRef.current.placeTap = true;
       },
-      place: () => { inputRef.current.keyPlace = true; pacer.poke(); },
+      // Shift: the action of what's in hand. Blocks are placed only while a block slot is picked;
+      // with the blade (the default) it's a swing, with the wand a flick — never a stray block.
+      place: () => {
+        pacer.poke();
+        if (flyingRef.current) return;
+        if (weaponRef.current) touchRef.current.tap = center();
+        else if (drawingRef.current) viewRef.current?.wandCast();
+        else inputRef.current.keyPlace = true;
+      },
       breakNow: () => { inputRef.current.keyBreak = true; pacer.poke(); },
       wheel: step,
       slot: pickSlot,
@@ -1395,8 +1470,9 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
           {hudReady && desktop && <InfoLine gameRef={gameRef} dim={dim} />}
         </View>
         <View style={styles.headerRight}>
-          <Pill testID="view" label={desktop ? (viewMode === 'first' ? '👁 1인칭' : '🎥 3인칭') : viewMode === 'first' ? '👁' : '🎥'} onPress={toggleView} />
-          {(desktop || dragon) && <Pill testID="dragon" label={dragon ? '🐉 ✕' : '🐉'} onPress={summonDragon} />}
+          {/* On touch, the view and the dragon live in the action button's ring. */}
+          {desktop && <Pill testID="view" label={viewMode === 'first' ? '👁 1인칭' : '🎥 3인칭'} onPress={toggleView} />}
+          {desktop && <Pill testID="dragon" label={dragon ? '🐉 ✕' : '🐉'} onPress={summonDragon} />}
           <Pill testID="menu" label="☰" onPress={() => { sound.play('tap'); setMenuOpen((o) => !o); }} />
         </View>
       </View>
@@ -1424,11 +1500,11 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
         // Jump owns the bottom-right corner, where the thumb rests (as in Roblox's mobile layout).
         <RoundButton testID="btn-점프" label="⤒" size={78} style={{ right: 20, bottom: 18 }} onDown={() => { pacer.poke(); inputRef.current.jump = true; }} onUp={() => { inputRef.current.jump = false; }} />
       )}
-      {/* Small secondary icons stack above jump; nothing else crowds the corner. */}
-      {!flying && <RoundButton testID="mode" label={drawing ? '👀' : '✏️'} size={50} style={{ right: 34, bottom: 108 }} onDown={toggleMode} />}
-      <RoundButton testID="carpet" label="🧞" sub={flying ? '착륙' : undefined} size={flying ? 70 : 50} tone={flying ? 'gold' : 'glass'}
-        style={flying ? { right: 42, bottom: 150 } : { right: 34, bottom: 166 }} onDown={toggleCarpet} />
-      {!flying && <CastButton store={selStore} visible={drawing} onCast={castSpell} onClear={clearMarks} style={{ right: 112, bottom: 12 }} />}
+      {/* Everything else is one action button: tap for the obvious thing, hold and slide for the rest. */}
+      <ActionDial items={dialItems} marks={selStore} primary={flying ? 'land' : drawing ? 'cast' : 'draw'}
+        size={flying || dim === 'space' ? 76 : 92} right={flying || dim === 'space' ? 30 : 112} bottom={flying || dim === 'space' ? 128 : 12}
+        onPrimary={flying ? toggleCarpet : drawing ? castSpell : toggleMode} onPick={pickDial}
+        onHover={() => buzz(Haptics.ImpactFeedbackStyle.Light)} />
       </>)}
 
       {!flying && <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.hotbar, portrait && styles.hotbarPortrait]} contentContainerStyle={styles.hotbarInner}>
@@ -1476,7 +1552,7 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       ) : (
         <FadingHint text={drawing ? `${WEAPONS.find((w) => w.id === weaponId)?.name ?? ''} · 블록 위에 그리고 💥` : weapon ? '에너지 검 · 탭해서 베기' : `${BLOCKS[palette[hud.selected]].name} · 탭해서 놓기`} />
       ))}
-      {hudReady && <MoneyCounter onPress={openShop} onTarget={setMoneyTarget} top={portrait ? 66 : undefined} />}
+      {hudReady && <MoneyCounter onPress={openShop} market={desktop} onTarget={setMoneyTarget} top={portrait ? 66 : undefined} />}
       <MoneyFx ref={moneyFx} target={moneyTarget} width={size.width} height={size.height} onSound={(n) => sound.play(n)} />
       {toast && <Text pointerEvents="none" style={styles.toast}>{toast}</Text>}
       {inviteOpen && code && (
@@ -1485,8 +1561,8 @@ export default function Play({ mode, profile, onProfile, onExit, onHost }: {
       {menuOpen && (
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)}>
           <View style={styles.menu}>
+            <MenuRow icon="🏮" label="장터 (무기 · 능력치 · 보석함)" onPress={openShop} />
             <MenuRow icon="📸" label="내 공간 제출 (사진→방)" onPress={openPhoto} />
-            <MenuRow icon="🛒" label="상점" onPress={openShop} />
             {!desktop && <MenuRow icon="🐉" label={dragon ? '용 돌려보내기' : '용 부르기'} onPress={() => { setMenuOpen(false); summonDragon(); }} />}
             <MenuRow icon="❓" label="도움말" onPress={openManual} />
             <MenuRow icon="👥" label={code ? `친구 초대 링크 보내기 (방 ${code})` : '친구 초대 (링크 보내기)'} onPress={() => {

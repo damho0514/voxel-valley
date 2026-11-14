@@ -50,6 +50,12 @@ import arriveMazeWav from '../../assets/sounds/arrive_maze.wav';
 import arriveParkingWav from '../../assets/sounds/arrive_parking.wav';
 import creakWav from '../../assets/sounds/creak.wav';
 import lampoffWav from '../../assets/sounds/lampoff.wav';
+import eerieStepsWav from '../../assets/sounds/eerie_steps.wav';
+import eerieKnockWav from '../../assets/sounds/eerie_knock.wav';
+import eerieBreathWav from '../../assets/sounds/eerie_breath.wav';
+import eerieWhisperWav from '../../assets/sounds/eerie_whisper.wav';
+import eerieDoorWav from '../../assets/sounds/eerie_door.wav';
+import eerieStaticWav from '../../assets/sounds/eerie_static.wav';
 import type { Dimension } from '../game/blocks';
 import type { Track } from '../game/zones';
 import { loadSfx, playSfx, sfxAvailable } from './sfx';
@@ -99,6 +105,13 @@ const FILES = {
   creak: creakWav,
   /** A ceiling panel in the 노란 방 dying behind you. */
   lampoff: lampoffWav,
+  // The 노란 방's small strange sounds, played quietly from nowhere (see EERIE).
+  eerie_steps: eerieStepsWav,
+  eerie_knock: eerieKnockWav,
+  eerie_breath: eerieBreathWav,
+  eerie_whisper: eerieWhisperWav,
+  eerie_door: eerieDoorWav,
+  eerie_static: eerieStaticWav,
 };
 /** Background loops per place (a dimension, or a zone inside one; see game/zones.ts). */
 const TRACKS: Record<Track, number> = {
@@ -109,9 +122,12 @@ const TRACK_VOLUME: Record<Track, number> = {
   valley: 0.35, castle: 0.45, future: 0.3, space: 0.5, store: 0.45, maze: 0.8, parking: 0.55, parkingUnder: 0.65,
 };
 /** The sting for arriving in each dimension. */
-export const ARRIVE: Record<Dimension, Sfx> = {
-  valley: 'arrive_valley', future: 'arrive_future', space: 'arrive_space', store: 'arrive_store', maze: 'arrive_maze', parking: 'arrive_parking',
+export const ARRIVE: Partial<Record<Dimension, Sfx>> = {
+  // Coming home to the valley: just the portal and its own music, as it always was.
+  future: 'arrive_future', space: 'arrive_space', store: 'arrive_store', maze: 'arrive_maze', parking: 'arrive_parking',
 };
+/** Quiet strange sounds for the 노란 방, one picked at random every so often. */
+export const EERIE: Sfx[] = ['eerie_steps', 'eerie_knock', 'eerie_breath', 'eerie_whisper', 'eerie_door', 'eerie_static', 'creak'];
 /** Seconds for one track to fade into the next. */
 const FADE = 1.6;
 type FileName = keyof typeof FILES;
@@ -123,6 +139,7 @@ const VOLUME: Record<FileName, number> = {
   coin: 0.55, coins: 0.8, cash: 1, buy: 0.85, deny: 0.6,
   drumroll: 0.8, pop: 0.8, fanfare: 0.9, fail: 0.85, gem: 0.75, magic: 0.75,
   arrive_valley: 0.8, arrive_future: 0.8, arrive_space: 0.85, arrive_store: 0.8, arrive_maze: 1, arrive_parking: 0.9, creak: 0.7, lampoff: 0.55,
+  eerie_steps: 0.35, eerie_knock: 0.3, eerie_breath: 0.28, eerie_whisper: 0.26, eerie_door: 0.3, eerie_static: 0.22,
 };
 const MUTE_KEY = 'voxel-valley-go/muted';
 
@@ -351,7 +368,8 @@ class Sound {
 
   /** The arrival sting for a dimension, a moment after the portal swirl. */
   arrive(dim: Dimension) {
-    setTimeout(() => this.play(ARRIVE[dim]), 350);
+    const sting = ARRIVE[dim];
+    if (sting) setTimeout(() => this.play(sting), 350);
   }
 
   startMusic() {

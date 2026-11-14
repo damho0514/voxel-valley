@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>Voxel Valley</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  
+    <!-- Home-screen app (iPhone: Safari → 공유 → 홈 화면에 추가): full screen, its own icon. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Voxel Valley" />
+    <meta name="theme-color" content="#0c1222" />
+    <link rel="apple-touch-icon" href="/voxel-valley/play/icon-180.png" />
+    <link rel="manifest" href="/voxel-valley/play/manifest.json" />
+    <style>
+      html, body { background: #0c1222; overscroll-behavior: none; -webkit-user-select: none; user-select: none;
+        -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+      body { position: fixed; inset: 0; }
+      /* The game is played sideways: in portrait, ask to turn the phone. */
+      #turn { display: none; position: fixed; inset: 0; z-index: 99; background: #0c1222; color: #fff6dc;
+        align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+        font: 800 18px -apple-system, "Apple SD Gothic Neo", sans-serif; text-align: center; }
+      #turn .ph { font-size: 54px; animation: rot 1.6s ease-in-out infinite; }
+      @keyframes rot { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+      @media (orientation: portrait) and (max-width: 900px) { #turn { display: flex; } }
+      /* "세로로 그냥 하기": the hint never blocks play (iPhones with rotation lock can't turn). */
+      body.portrait-ok #turn { display: none !important; }
+      #turn button { margin-top: 8px; padding: 12px 22px; border-radius: 14px; border: 1px solid rgba(232,194,106,.6);
+        background: rgba(242,195,91,.95); color: #2a1b00; font: 900 16px -apple-system, "Apple SD Gothic Neo", sans-serif; }
+    </style>
+  <link rel="icon" href="/voxel-valley/play/favicon.ico"/></head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript> You need to enable JavaScript to run this app. </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+    <div id="turn"><div class="ph">📱</div><div>가로로 돌리면 더 넓게 보여요</div><div style="font-weight:600;font-size:13px;opacity:.75">세로 화면 잠금이 켜져 있으면 제어 센터에서 끌 수 있어요</div><button id="portrait-ok">세로로 그냥 하기</button></div>
+    <script>
+      (function () {
+        var ok = function () { document.body.classList.add('portrait-ok'); try { localStorage.setItem('vv-portrait-ok', '1'); } catch (e) {} };
+        try { if (localStorage.getItem('vv-portrait-ok')) document.body.classList.add('portrait-ok'); } catch (e) {}
+        document.getElementById('portrait-ok').addEventListener('click', ok);
+      })();
+    </script>
+  <script src="/voxel-valley/play/_expo/static/js/web/index-330269a49da30975c601f12e0f5ff8f3.js" defer></script>
+</body>
+</html>

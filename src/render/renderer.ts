@@ -123,7 +123,7 @@ const SKY_VALLEY = 0xaedcf4;
 /** 노란 방: what's past the light — a dark the colour of old, damp carpet. */
 const MAZE_VOID = 0x0b0904;
 /** How many of the nearest ceiling panels light the 노란 방 at once (the rest are lost in the dark anyway). */
-const LAMP_SLOTS = 10;
+const LAMP_SLOTS = 6;
 /** A panel wakes (and brightens a little) when you come this close, and dies once you are this far past it. */
 const LAMP_NEAR = 6;
 const LAMP_GONE = 12;
@@ -134,31 +134,36 @@ const LAMP_GONE = 12;
  * On the glow material it instead dims each panel's own surface with its light.
  */
 function litByLamps(mat: THREE.MeshBasicMaterial, u: Record<string, THREE.IUniform>, glow: boolean) {
-  mat.customProgramCacheKey = () => (glow ? 'lamps-glow' : 'lamps');
+  mat.customProgramCacheKey = () => (glow ? 'lamps-glow-v' : 'lamps-v');
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
-    shader.vertexShader = 'varying vec3 vLampW;\n' + shader.vertexShader.replace('#include <project_vertex>',
-      '#include <project_vertex>\n  vLampW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    // Lit per vertex, not per pixel: blocks are 1-unit quads, so the pools of light look the same,
+    // and phones no longer run the lamp loop for every pixel of the screen (the 노란 방 lag).
+    const decl = `uniform float uMaze;\nuniform float uCeil;\nuniform vec4 uLamps[${LAMP_SLOTS}];\nvarying vec3 vLampLight;\n`;
     const lit = glow
-      ? `if (uMaze > 0.5 && vLampW.y > uCeil - 0.05) {
+      ? `vLampLight = vec3(1.0);
+  if (uMaze > 0.5 && wLamp.y > uCeil - 0.05) {
     float on = 0.05;
     for (int i = 0; i < ${LAMP_SLOTS}; i++) {
-      vec3 d = uLamps[i].xyz - vLampW; d.y = 0.0;
+      vec3 d = uLamps[i].xyz - wLamp; d.y = 0.0;
       on = max(on, uLamps[i].w * (1.0 - smoothstep(3.4, 4.4, dot(d, d))));
     }
     // A lit panel burns near-white (and blooms); a dead one is a grey slab.
-    diffuseColor.rgb *= min(1.15, on * 1.6);
+    vLampLight = vec3(min(1.15, on * 1.6));
   }`
-      : `if (uMaze > 0.5) {
+      : `vLampLight = vec3(1.0);
+  if (uMaze > 0.5) {
     vec3 acc = vec3(0.03, 0.026, 0.016);
     for (int i = 0; i < ${LAMP_SLOTS}; i++) {
-      vec3 d = uLamps[i].xyz - vLampW;
+      vec3 d = uLamps[i].xyz - wLamp;
       acc += vec3(1.0, 0.92, 0.66) * uLamps[i].w / (1.0 + dot(d, d) * 0.085);
     }
-    diffuseColor.rgb *= min(acc, vec3(1.3));
+    vLampLight = min(acc, vec3(1.3));
   }`;
-    shader.fragmentShader = `uniform float uMaze;\nuniform float uCeil;\nuniform vec4 uLamps[${LAMP_SLOTS}];\nvarying vec3 vLampW;\n`
-      + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n  ${lit}`);
+    shader.vertexShader = decl + shader.vertexShader.replace('#include <project_vertex>',
+      `#include <project_vertex>\n  vec3 wLamp = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  ${lit}`);
+    shader.fragmentShader = 'varying vec3 vLampLight;\n'
+      + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= vLampLight;');
   };
 }
 
@@ -387,6 +392,7 @@ export class VoxelRenderer {
   /** Sky, fog, camera range and scenery for a dimension. */
   setDimension(dim: Dimension) {
     this.dim = dim;
+    this.setStalker(null);
     if (this.photoFrame) this.photoFrame.group.visible = this.photoFrame.dim === dim;
     for (const o of this.extras) {
       this.scene.remove(o);
@@ -703,9 +709,19 @@ export class VoxelRenderer {
       const guard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.06), mat(0xf2b544));
       guard.position.y = 0.1;
       const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.045), mat(0x3a3f4a));
-      w.add(blade, core, glow, guard, grip);
-      w.position.set(0.32, -0.32, -0.55);
+      // Your arm: a blocky fist round the grip and the sleeve running back off the screen, so every
+      // swing shows the arm that makes it.
+      const fist = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.085, 0.08), mat(0xd9a07a));
+      const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.045, 0.03), mat(0xc98e68));
+      thumb.position.set(-0.04, 0.025, -0.03);
+      const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.1), mat(0xe8b54a));
+      cuff.position.y = -0.065;
+      const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.42, 0.11), mat(0x3a4a6a));
+      sleeve.position.y = -0.29;
+      w.add(blade, core, glow, guard, grip, fist, thumb, cuff, sleeve);
+      w.position.set(0.3, -0.25, -0.6);
       w.rotation.set(-0.35, -0.25, -0.35);
+      w.scale.setScalar(0.85);
       w.traverse((o) => { o.renderOrder = 10; if (o instanceof THREE.Mesh) (o.material as THREE.Material).depthTest = false; });
       this.camera.add(w);
       if (!this.camera.parent) this.scene.add(this.camera);
@@ -960,6 +976,40 @@ export class VoxelRenderer {
     }
   }
 
+  /**
+   * 노란 방: a tall, thin, faceless figure standing far down a corridor, in the fog. Null hides it.
+   * It is pure black (the fog swallows it into a silhouette) with two dull points where eyes would be.
+   */
+  private stalker: THREE.Group | null = null;
+  setStalker(p: { x: number; y: number; z: number; yaw: number } | null) {
+    if (!p) { if (this.stalker) this.stalker.visible = false; return; }
+    if (!this.stalker) {
+      const g = new THREE.Group();
+      const black = new THREE.MeshBasicMaterial({ color: 0x020202 });
+      const box = (w: number, h: number, d: number, x: number, y: number, z = 0) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), black);
+        m.position.set(x, y, z);
+        g.add(m);
+      };
+      box(0.12, 1.25, 0.14, -0.13, 0.62); box(0.12, 1.25, 0.14, 0.13, 0.62); // legs, too long
+      box(0.42, 0.95, 0.2, 0, 1.7); // torso
+      box(0.09, 1.35, 0.1, -0.29, 1.45); box(0.09, 1.35, 0.1, 0.29, 1.45); // arms hanging to the knees
+      box(0.07, 0.22, 0.07, 0, 2.27); // neck
+      box(0.3, 0.38, 0.28, 0, 2.55); // head
+      const eye = new THREE.MeshBasicMaterial({ color: 0xcfc6a0, fog: false });
+      for (const x of [-0.07, 0.07]) {
+        const e = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.025, 0.01), eye);
+        e.position.set(x, 2.58, -0.145);
+        g.add(e);
+      }
+      this.scene.add(g);
+      this.stalker = g;
+    }
+    this.stalker.position.set(p.x, p.y, p.z);
+    this.stalker.rotation.y = p.yaw;
+    this.stalker.visible = true;
+  }
+
   /** Swing the weapon once. */
   swing() {
     this.swingT = 0;
@@ -971,7 +1021,7 @@ export class VoxelRenderer {
     this.swingT = Math.min(1, this.swingT + dt * 4.5);
     const s = Math.sin(this.swingT * Math.PI); // 0 → 1 → 0
     w.rotation.set(-0.35 - s * 1.3, -0.25 + s * 0.5, -0.35 - s * 0.4);
-    w.position.set(0.32 - s * 0.12, -0.32 + s * 0.05, -0.55 - s * 0.1);
+    w.position.set(0.3 - s * 0.12, -0.25 + s * 0.05, -0.6 - s * 0.1);
     // A gentle idle bob.
     w.position.y += Math.sin(Date.now() / 450) * 0.006;
   }
@@ -1045,6 +1095,7 @@ export class VoxelRenderer {
   private lamps: Lamp[] = [];
   private lampSeed = NaN;
   private readonly lampD = new Float32Array(1024);
+  private readonly nearLamps: number[] = [];
   private lampTint = 0;
 
   private darkFX(dt: number) {
@@ -1064,11 +1115,18 @@ export class VoxelRenderer {
     }
     if (f.left > 0) f.left -= dt;
     const cam = this.camera.position, k = Math.min(1, dt * 2.5);
+    // Only panels within reach matter: the rest keep their state (unseen ones hum on, passed ones are dead).
+    const R = LAMP_GONE + 10;
     let nearest = -1, nearD = Infinity, here = 0.03;
+    const near = this.nearLamps;
+    near.length = 0;
     for (let i = 0; i < this.lamps.length; i++) {
       const l = this.lamps[i];
-      const dx = l.x - cam.x, dz = l.z - cam.z, d = Math.sqrt(dx * dx + dz * dz);
+      const dx = l.x - cam.x, dz = l.z - cam.z;
+      if (dx > R || dx < -R || dz > R || dz < -R) continue;
+      const d = Math.sqrt(dx * dx + dz * dz);
       this.lampD[i] = d;
+      near.push(i);
       if (d < nearD) { nearD = d; nearest = i; }
       if (!l.exit) {
         if (d < LAMP_NEAR) l.seen = true;
@@ -1092,17 +1150,11 @@ export class VoxelRenderer {
     const flickering = f.left > 0 && nearest >= 0;
     // Hand the nearest lit panels to the shader.
     const slots = this.lampU.uLamps.value;
-    const used = new Uint8Array(0);
-    void used;
+    const lit = near.filter((i) => this.lamps[i].s > 0.004).sort((a, b) => this.lampD[a] - this.lampD[b]);
     for (let n = 0; n < LAMP_SLOTS; n++) {
-      let best = -1, bd = Infinity;
-      for (let i = 0; i < this.lamps.length; i++) {
-        const d = this.lampD[i];
-        if (d < bd && this.lamps[i].s > 0.004) { bd = d; best = i; }
-      }
-      if (best < 0) { slots[n].set(0, -100, 0, 0); continue; }
-      const l = this.lamps[best];
-      this.lampD[best] = Infinity;
+      const best = lit[n];
+      if (best === undefined) { slots[n].set(0, -100, 0, 0); continue; }
+      const l = this.lamps[best], bd = this.lampD[best];
       const v = flickering && best === nearest ? (Math.random() < 0.55 ? 0.05 : l.s) : l.s;
       slots[n].set(l.x, l.y, l.z, v);
       here += v / (1 + bd * bd * 0.085);
@@ -1129,6 +1181,27 @@ export class VoxelRenderer {
         m.color.copy(o.userData.base as THREE.Color).multiplyScalar(this.daylight);
       }
     });
+  }
+
+  /**
+   * People's big heads are far wider than the body that collides (≈1.1 blocks against 0.6), so
+   * standing against a wall they'd sink into it. This is how far to shift the figure (drawing
+   * only) so the head clears the walls on each side; in a gap too narrow for it, it centres.
+   */
+  private wallNudge(x: number, y: number, z: number): [number, number] {
+    const H = 0.56;
+    const w = this.world;
+    const y1 = Math.floor(y + 1.0), y2 = Math.floor(y + 1.5);
+    const solid = (bx: number, bz: number) => w.isSolid(bx, y1, bz) || w.isSolid(bx, y2, bz);
+    const cx = Math.floor(x), cz = Math.floor(z);
+    const axis = (v: number, lo: boolean, hi: boolean, c: number) => {
+      const wl = lo ? c : -Infinity, wr = hi ? c + 1 : Infinity;
+      if (lo && hi) return (wl + wr) / 2 - v;
+      if (v - wl < H) return H - (v - wl);
+      if (wr - v < H) return -(H - (wr - v));
+      return 0;
+    };
+    return [axis(x, solid(cx - 1, cz), solid(cx + 1, cz), cx), axis(z, solid(cx, cz - 1), solid(cx, cz + 1), cz)];
   }
 
   private heartTex: THREE.DataTexture | null = null;
@@ -1709,11 +1782,19 @@ export class VoxelRenderer {
         const pop = age < 0.25 ? 0.4 + 0.75 * Math.sin((age / 0.25) * Math.PI * 0.5) * (1 + 0.3 * Math.sin((age / 0.25) * Math.PI)) : 1;
         bubble.scale.set(0.55 * pop, 0.55 * pop, 1);
       }
+      // Undo last frame's push off the walls before moving (see wallNudge).
+      a.position.x -= a.userData.nudgeX ?? 0;
+      a.position.z -= a.userData.nudgeZ ?? 0;
       const before = a.position.clone();
       if (p.exact) a.position.set(p.x, p.y, p.z);
       else a.position.lerp(new THREE.Vector3(p.x, p.y, p.z), k);
       // Walk cycle: swing speed follows how fast they're moving across the ground.
       const speed = dt > 0 ? Math.hypot(a.position.x - before.x, a.position.z - before.z) / dt : 0;
+      if (!p.species) {
+        const [ox, oz] = this.wallNudge(a.position.x, a.position.y, a.position.z);
+        a.userData.nudgeX = ox; a.userData.nudgeZ = oz;
+        a.position.x += ox; a.position.z += oz;
+      }
       const limbs = a.userData.limbs as THREE.Group[] | undefined;
       if (limbs && p.sit && !p.species) {
         // Sitting cross-legged on the carpet: legs forward, hands resting on the knees.

@@ -1,19 +1,18 @@
 import type { Dimension } from './blocks';
 import { PARK_GROUND } from './darkworlds';
-import { CASTLE } from './dimensions';
 
 /** A background loop: one per dimension, plus zones inside some of them. */
 export type Track = Dimension | 'castle' | 'parkingUnder';
 
 /**
- * Which loop fits where you stand. Places change the sound, not only gates: walking up to the
- * moonlit castle, or down the car park's ramps below the street.
+ * Which loop fits where you stand. Places change the sound, not only gates: walking down the car
+ * park's ramps below the street, for one.
  */
+// x and z are kept so zones can depend on where you stand again (the castle grounds did).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function trackAt(dim: Dimension, x: number, y: number, z: number): Track {
-  if (dim === 'valley') {
-    const dx = Math.max(0, Math.abs(x - CASTLE.x) - CASTLE.halfX), dz = Math.max(0, Math.abs(z - CASTLE.z) - CASTLE.halfZ);
-    return Math.hypot(dx, dz) < 14 ? 'castle' : 'valley';
-  }
+  // The valley keeps its own original music everywhere (the castle loop is not used there).
+  if (dim === 'valley') return 'valley';
   if (dim === 'parking') return y < PARK_GROUND - 0.5 ? 'parkingUnder' : 'parking';
   return dim;
 }

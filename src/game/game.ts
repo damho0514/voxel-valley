@@ -227,10 +227,17 @@ export class Game {
    */
   viewOrigin: { x: number; y: number; z: number } | null = null;
   viewExtra = 0;
+  /** Third person: where the camera actually looks (it tilts down over your head in tight spots). */
+  viewDir: { x: number; y: number; z: number } | null = null;
 
   /** Where aiming rays start: the camera in third person, the eye in first person. */
   rayStart() {
     return this.viewOrigin ?? this.eye();
+  }
+
+  /** The crosshair's direction: the camera's in third person, the eyes' otherwise. */
+  aimDir() {
+    return this.viewDir ?? this.lookDir();
   }
 
   lookDir() {
@@ -490,7 +497,7 @@ export class Game {
   }
 
   private aim() {
-    const e = this.rayStart(), d = this.aimRay ?? this.lookDir();
+    const e = this.rayStart(), d = this.aimRay ?? this.aimDir();
     this.target = raycast(this.world, e.x, e.y, e.z, d.x, d.y, d.z, this.buildReach + this.viewExtra);
   }
 

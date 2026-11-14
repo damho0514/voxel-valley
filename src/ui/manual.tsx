@@ -21,7 +21,7 @@ const I = (emoji: string) => <Text style={styles.icon}>{emoji}</Text>;
 const QUICK: { emoji: string; step: string; title: string; body: string }[] = [
   { emoji: '🕹️', step: '1', title: '밀면 그쪽으로', body: '왼쪽 아래 아무 데나 엄지를 대고 밀어요. 그 방향으로 걷고 화면도 따라 돌아요.' },
   { emoji: '✏️', step: '2', title: '쓱 그리기', body: '블록 위를 손가락으로 그려요. 그린 블록이 금빛으로 빛나요.' },
-  { emoji: '💥', step: '3', title: '한 번에 부수기', body: '💥를 누르면 한꺼번에 부서지고 돈이 들어와요.' },
+  { emoji: '💥', step: '3', title: '한 번에 부수기', body: '오른쪽 액션 버튼(💥)을 탭하면 한꺼번에 부서지고 돈이 들어와요.' },
   { emoji: '⤒', step: '4', title: '점프', body: '오른쪽 아래 큰 버튼. 한 칸 턱은 저절로 넘어요.' },
 ];
 
@@ -29,12 +29,12 @@ const QUICK: { emoji: string; step: string; title: string; body: string }[] = [
 const buildSections = (): Section[] => [
   {
     id: 'play', label: '🎮 버튼', items: [
-      { icon: I('👀'), title: '둘러보기 ↔ 그리기', body: '점프 위 작은 버튼. 둘러보기에선 화면을 끌어 보고, 탭하면 블록을 놓고, 꾹 누르면 캐요.' },
-      { icon: I('🧞'), title: '마법 양탄자', body: '하늘을 날아요. 스틱으로 방향, ▲▼로 높이. 착륙을 누르면 내려요.' },
+      { icon: I('✦'), title: '액션 버튼', body: '점프 옆 큰 버튼 하나. 탭하면 지금 할 일(부수기 · 착륙 · 그리기). 꾹 누르면 링이 펼쳐져요 — 손가락을 밀어 둘러보기/그리기, 양탄자, 1인칭/3인칭, 용을 고르고 떼면 실행.' },
+      { icon: I('🧞'), title: '마법 양탄자', body: '액션 버튼 링에서 🧞. 스틱으로 방향, ▲▼로 높이. 액션 버튼을 탭하면 착륙해요.' },
       { icon: I('🎥'), title: '1인칭 / 3인칭', body: '오른쪽 위 👁 / 🎥 버튼으로 내 캐릭터를 보며 놀 수 있어요.' },
       { icon: I('⚔️'), title: '에너지 검', body: '아래 둘째 칸. 탭한 블록을 바로 캐요. 동물을 탭하면 펫이 돼요.' },
       { icon: I('🧱'), title: '블록 칸', body: '유리 · 잔디 · 메탈. 골라서 화면을 탭하면 놓여요.' },
-      { icon: I('☰'), title: '메뉴', body: '📸 내 공간 제출 · 상점 · 🐉 용 부르기 · 도움말 · 친구 초대 · 저장하고 나가기.' },
+      { icon: I('☰'), title: '메뉴', body: '🏮 장터 · 📸 내 공간 제출 · 🐉 용 부르기 · 도움말 · 친구 초대 · 저장하고 나가기.' },
       { icon: I('📸'), title: '내 공간 제출', body: '방·카페 사진이나 스크린샷을 내면 색감과 분위기를 읽어, 바라보는 쪽에 그 느낌의 집을 지어요. 뒷벽엔 사진 블록 벽화, 옆벽엔 진짜 사진 액자.' },
       { icon: I('🐉'), title: '용', body: '메뉴에서 불러요. 화면을 탭하면 그곳에 불을 뿜어 땅을 날려요.' },
       { icon: I('🌀'), title: '차원문', body: '계곡의 문으로 들어가면 미래 도시나 우주로 가요.' },
@@ -42,7 +42,7 @@ const buildSections = (): Section[] => [
   },
   {
     id: 'money', label: '엽전', items: [
-      { icon: <Yeopjeon size={26} />, title: '냥', body: '부순 블록만큼 엽전이 들어와요. 위 가운데 돈주머니를 누르면 장터가 열려요.' },
+      { icon: <Yeopjeon size={26} />, title: '냥', body: '부순 블록만큼 엽전이 들어와요. 장터는 ☰ 메뉴에 있어요.' },
       { icon: <Seal text="얼쑤" size={28} tilt={0} />, title: '추임새', body: '쉬지 않고 이어서 부수면 좋다 → 얼쑤 → 얼씨구 → 지화자! 갈수록 냥이 더 붙어요.' },
       { icon: <Seal text="倍" size={28} tilt={0} />, title: '싹쓸이 ×2', body: '처음과 끝이 만나게 동그라미를 그리면 안쪽까지 표시되고 냥이 곱절!' },
       { icon: <Bokjumeoni size={26} />, title: '복주머니 (3%)', body: '부수기 한 번마다 3% 확률로 복주머니가 터져 엽전이 쏟아져요.' },

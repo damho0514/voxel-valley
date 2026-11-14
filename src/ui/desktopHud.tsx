@@ -15,7 +15,7 @@ const GUIDE: [string, string][] = [
   ['마우스 · 방향키', '둘러보기'],
   ['W A S D', '이동'],
   ['Space · Enter', '점프 · 공중에서 한 번 더: 이단 점프'],
-  ['Shift', '블록 쌓기 (어떤 도구를 들고 있어도)'],
+  ['Shift', '공격 (검을 휘둘러요) · 블록을 고르면 쌓기'],
   ['⌘ · Ctrl + Shift', '누르는 즉시 블록 깨기 · 누르고 있으면 연속 (맥 ⌘ · 윈도우 Ctrl)'],
   ['Alt', '걷기 (발소리 없음)'],
   ['Ctrl · C', '앉기 · 하강'],
@@ -57,7 +57,7 @@ export function ClickToPlay({ onPress, resumed }: { onPress: () => void; resumed
     <Pressable testID="click-to-play" style={styles.veil} onPress={onPress}>
       <View style={styles.card}>
         <Text style={styles.title}>{resumed ? '▶ 클릭 · Enter로 계속하기' : '▶ 클릭 · Enter로 플레이'}</Text>
-        <Text style={styles.sub}>마우스가 고정돼요 · Shift 쌓기 · ⌘/Ctrl+Shift 깨기 · Esc 일시정지 · ⌘/Ctrl+Enter 전체 화면</Text>
+        <Text style={styles.sub}>마우스가 고정돼요 · Shift 공격 · ⌘/Ctrl+Shift 깨기 · Esc 일시정지 · ⌘/Ctrl+Enter 전체 화면</Text>
         <View style={styles.grid}>
           {GUIDE.map(([k, v]) => (
             <View key={k} style={styles.row}>
@@ -79,8 +79,8 @@ export function KeyHints({ flying, drawing }: { flying: boolean; drawing: boolea
   const items = flying
     ? ['W 앞으로', 'Space 상승', 'Ctrl 하강', 'F 착륙', 'V 시점']
     : drawing
-      ? ['좌클릭 쓸어서 표시', '우클릭 · 5 💥', 'Shift 쌓기', '⌘/Ctrl+Shift 깨기', '⌘/Ctrl+Enter 전체 화면', 'Esc 일시정지']
-      : ['Shift 쌓기', '⌘/Ctrl+Shift 깨기', '좌클릭 캐기 · 우클릭 놓기', '1 지팡이 · 3 검', '⌘/Ctrl+Enter 전체 화면', 'Esc 일시정지'];
+      ? ['좌클릭 쓸어서 표시', '우클릭 · 5 💥', 'Shift 공격', '⌘/Ctrl+Shift 깨기', '⌘/Ctrl+Enter 전체 화면', 'Esc 일시정지']
+      : ['Shift 공격 · 블록이면 쌓기', '⌘/Ctrl+Shift 깨기', '좌클릭 캐기 · 우클릭 놓기', '1 지팡이 · 3 검', '⌘/Ctrl+Enter 전체 화면', 'Esc 일시정지'];
   return (
     <View pointerEvents="none" style={[styles.hints, { maxWidth: hintsWidth }]}>
       {items.map((t) => <Text key={t} style={styles.hint}>{t}</Text>)}

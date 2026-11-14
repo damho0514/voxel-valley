@@ -27,9 +27,10 @@ export function useMoney() {
   return money;
 }
 
-/** The purse (tap it for the market). Rolls up to the new value and bumps when it grows. */
+/** The purse. Rolls up to the new value and bumps when it grows. With `market` (desktop) it also
+ * wears a 장터 tag and opens the market; on touch the market is in the ☰ menu. */
 /** `top`: distance from the top edge (portrait screens put it below the header). */
-export function MoneyCounter({ onPress, onTarget, top }: { onPress: () => void; onTarget: (p: Pt) => void; top?: number }) {
+export function MoneyCounter({ onPress, onTarget, top, market = true }: { onPress: () => void; onTarget: (p: Pt) => void; top?: number; market?: boolean }) {
   const money = useMoney();
   const [shown, setShown] = useState(money);
   const shownRef = useRef(money);
@@ -57,13 +58,13 @@ export function MoneyCounter({ onPress, onTarget, top }: { onPress: () => void; 
   }, [money, bump]);
 
   return (
-    <Pressable testID="money" onPress={onPress} style={[styles.counterWrap, top !== undefined && { top }]}
+    <Pressable testID="money" onPress={onPress} disabled={!market} style={[styles.counterWrap, top !== undefined && { top }]}
       onLayout={(e) => { const l = e.nativeEvent.layout; onTarget({ x: l.x + 26, y: l.y + l.height / 2 }); }}>
       <Animated.View style={[styles.counter, { transform: [{ scale: bump }] }]}>
         <Yeopjeon size={22} />
         <Text style={styles.counterText}>{fmtMoney(shown)}</Text>
         <Text style={styles.counterUnit}>냥</Text>
-        <View style={styles.marketTag}><Text style={styles.marketText}>장터</Text></View>
+        {market && <View style={styles.marketTag}><Text style={styles.marketText}>장터</Text></View>}
       </Animated.View>
     </Pressable>
   );

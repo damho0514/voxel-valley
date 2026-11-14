@@ -83,6 +83,9 @@ def main():
     if sys.argv[1:] == ['intro']:  # just the launch intro stings
         intro_sounds()
         return
+    if sys.argv[1:] == ['eerie']:  # just the 노란 방's small strange sounds
+        eerie_sounds()
+        return
     if sys.argv[1:] == ['places']:  # place music (maze, car park, castle) and the arrival stings
         place_sounds()
         return
@@ -660,6 +663,42 @@ def loud(buf, peak):
     return [v * peak / m for v in buf]
 
 
+def eerie_sounds():
+    """Small sounds for the 노란 방, played quietly now and then from nowhere in particular."""
+    b = blank(3.2)  # footsteps somewhere behind you, slow, then they stop
+    for k, t in enumerate((0.0, 0.62, 1.22, 1.86, 2.5)):
+        tone(b, t, 0.16, 95 - k * 3, vol=0.5, freq_end=60, decay=0.05, attack=0.002)
+        noise(b, t, 0.09, vol=0.25, smooth=0.75, decay=0.03, seed=930 + k)
+        noise(b, t + 0.21, 0.06, vol=0.06, smooth=0.8, decay=0.02, seed=940 + k)  # its echo
+    save('eerie_steps.wav', loud(b, 0.8), peak=0.8)
+
+    b = blank(2.0)  # three knocks inside the wall
+    for k, t in enumerate((0.0, 0.32, 0.64)):
+        tone(b, t, 0.22, 140, vol=0.6, freq_end=90, decay=0.05, attack=0.001)
+        noise(b, t, 0.05, vol=0.35, smooth=0.55, decay=0.015, seed=950 + k)
+    save('eerie_knock.wav', loud(b, 0.8), peak=0.8)
+
+    b = blank(3.4)  # someone breathing, close, behind your ear
+    for k, (t, d) in enumerate(((0.0, 1.2), (1.6, 1.4))):
+        noise(b, t, d, vol=0.3, smooth=0.55 if k == 0 else 0.62, attack=d * 0.55, release=d * 0.4, seed=960 + k)
+    save('eerie_breath.wav', loud(b, 0.75), peak=0.75)
+
+    b = blank(2.6)  # a whisper with no words
+    whisper(b, 0.05, 2.2, vol=0.3, seed=970)
+    save('eerie_whisper.wav', loud(b, 0.75), peak=0.75)
+
+    b = blank(2.8)  # a door far away, eased shut, then the latch
+    creak(b, 0.0, vol=0.25, seed=980)
+    tone(b, 1.35, 0.4, 78, vol=0.5, freq_end=48, decay=0.12, attack=0.003)
+    tone(b, 1.55, 0.06, 1800, vol=0.12, decay=0.02, attack=0.001)
+    save('eerie_door.wav', loud(b, 0.75), peak=0.75)
+
+    b = blank(2.4)  # a radio somewhere between stations, and for a moment almost a voice
+    noise(b, 0, 2.3, vol=0.25, smooth=0.1, attack=0.3, release=0.6, seed=990)
+    wobble(b, 0.8, 0.7, 330, 300, vib=0.05, vib_rate=5.5, vol=0.06, harmonics=((1, 1.0), (2, 0.6), (3, 0.4)), attack=0.1, release=0.2)
+    save('eerie_static.wav', loud(b, 0.7), peak=0.7)
+
+
 def place_sounds():
     save('maze.wav', loud(maze_music(), 0.8), peak=0.8)
     save('lampoff.wav', lampoff(), peak=0.7)
@@ -667,6 +706,7 @@ def place_sounds():
     save('parking.wav', loud(parking_music(), 0.6), peak=0.6)
     save('castle.wav', loud(castle_music(), 0.55), peak=0.55)
     arrival_stings()
+    eerie_sounds()
 
 
 if __name__ == '__main__':

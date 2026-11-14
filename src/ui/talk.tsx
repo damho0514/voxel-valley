@@ -1,5 +1,5 @@
 import * as Speech from 'expo-speech';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import { SpeechRec, useSpeechRecEvent } from './speechRec';
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, type ScrollViewInstance, StyleSheet, Text, TextInput, View } from 'react-native';
 import { greetLine, Persona, replyTo, spoken } from '../game/people';
@@ -47,14 +47,14 @@ export function TalkPanel({ persona, onClose, onSpeaking }: { persona: Persona; 
       alive.current = false;
       clearTimeout(t);
       Speech.stop();
-      try { ExpoSpeechRecognitionModule.abort(); } catch {}
+      try { SpeechRec?.abort(); } catch {}
       speakingRef.current(false);
     };
     // Greets once when opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useSpeechRecognitionEvent('result', (e) => {
+  useSpeechRecEvent('result', (e) => {
     const text = e.results[0]?.transcript ?? '';
     setHeard(text);
     if (e.isFinal) {
@@ -63,24 +63,24 @@ export function TalkPanel({ persona, onClose, onSpeaking }: { persona: Persona; 
       send(text);
     }
   });
-  useSpeechRecognitionEvent('end', () => setMic((m) => (m === 'listening' ? 'idle' : m)));
-  useSpeechRecognitionEvent('error', (e) => {
+  useSpeechRecEvent('end', () => setMic((m) => (m === 'listening' ? 'idle' : m)));
+  useSpeechRecEvent('error', (e) => {
     setHeard('');
     setMic(e.error === 'not-allowed' ? 'denied' : 'idle');
   });
 
   const listen = async () => {
     if (mic === 'listening') {
-      try { ExpoSpeechRecognitionModule.stop(); } catch {}
+      try { SpeechRec?.stop(); } catch {}
       return;
     }
     try {
-      if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) { setMic('unavailable'); return; }
-      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!SpeechRec || !SpeechRec.isRecognitionAvailable()) { setMic('unavailable'); return; }
+      const perm = await SpeechRec.requestPermissionsAsync();
       if (!perm.granted) { setMic('denied'); return; }
       Speech.stop(); // never listen while they talk
       setMic('listening');
-      ExpoSpeechRecognitionModule.start({
+      SpeechRec.start({
         lang: 'ko-KR',
         interimResults: true,
         continuous: false,
