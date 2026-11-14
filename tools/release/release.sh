@@ -247,13 +247,20 @@ kill "${PIDS[${#PIDS[@]}-1]}" 2>/dev/null || true
 # ═══════════════════════════════ 7. iOS: native ═══════════════════════════════
 DEVICE_UDID=""
 if [ "$SKIP_DEVICE" = 0 ]; then
-  DEVICE_UDID=$(xcrun devicectl list devices --json-output /dev/stdout 2>/dev/null | python3 -c "
+  # devicectl prints a table to stdout too, so the JSON goes to a file. Only an iPhone that is
+  # reachable right now (USB or Wi-Fi tunnel up) counts; a merely paired one can't be installed to.
+  DC_JSON="$WORK/devices.json"
+  xcrun devicectl list devices --json-output "$DC_JSON" >/dev/null 2>&1 || true
+  DEVICE_UDID=$(python3 - "$DC_JSON" <<'PY' 2>/dev/null || true
 import json,sys
-try: d=json.load(sys.stdin)
+try: d=json.load(open(sys.argv[1]))
 except Exception: sys.exit()
 for x in d.get('result',{}).get('devices',[]):
-    if x.get('connectionProperties',{}).get('tunnelState')=='connected' or x.get('connectionProperties',{}).get('pairingState')=='paired':
-        print(x.get('hardwareProperties',{}).get('udid','')); break" 2>/dev/null || true)
+    hp, cp = x.get('hardwareProperties',{}), x.get('connectionProperties',{})
+    if hp.get('platform')=='iOS' and cp.get('tunnelState')=='connected':
+        print(hp.get('udid','')); break
+PY
+)
 fi
 if [ -n "$DEVICE_UDID" ]; then
   step "7/7 iOS native Release build for the connected iPhone"
@@ -265,7 +272,7 @@ if [ -n "$DEVICE_UDID" ]; then
   IOS_APP=$(ls -d "$WORK"/ios-dd/Build/Products/Release-iphoneos/*.app | head -1)
   echo "  ✓ built $IOS_APP"
 else
-  step "7/7 iOS native: no iPhone connected — skipped (Expo Go and the web app still update)"
+  step "7/7 iOS native: no iPhone reachable (connect it by cable and unlock it) — skipped; Expo Go and the web app still update"
 fi
 
 # Prebuild rewrites android/ and ios/; they're generated (git-ignored) — make sure nothing tracked moved.
