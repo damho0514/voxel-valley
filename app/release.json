@@ -1,52 +1,40 @@
 {
  "version": "1.24.0",
- "tagline": "내 방 사진으로 집을 짓고, 땅굴을 파고, 동네 사람들과 수다 떠는 복셀 샌드박스",
+ "tagline": "눈 내리는 천국에서 모닥불을 쬐다가, 문 하나를 지나면 끝없는 노란 방. 부수고, 쌓고, 숨고, 도망치는 3D 블록 탐험 게임.",
  "apkInfo": "APK 89MB · v1.24.0 · 안드로이드 7.0 이상",
- "features": [
-  "<b>📸 내 공간 → 내 집</b> — 방·카페 사진이나 스크린샷을 올리면 색감과 분위기를 읽어 그 느낌의 집을 지어요. 벽엔 진짜 사진 액자",
-  "<b>⛏️ 땅굴과 꿀알바 편의점</b> — 깊이 팔수록 보석과 반닫이(쪽박~초대박), 다섯 칸 아래엔 꿀알바 편의점",
-  "<b>🗣️ 동네 사람들</b> — 털보 아저씨, 안경 선배, 잼민이, 폰좀비, 바코드 부장님을 탭하면 각자 말투로 대답해요",
-  "<b>🪙 장터 보상</b> — 엽전과 냥, 좋다! 얼쑤! 지화자! 추임새 콤보, 복주머니, 부적 효과",
-  "<b>✏️ 그리고 💥 부수기</b> — 블록 위에 그리면 한 번에 와르르. 동그라미로 묶으면 싹쓸이 ×2",
-  "<b>🧞 마법 양탄자 · 🌙 달빛 성</b> — 어디서나 하늘을 날고, 1인칭과 3인칭을 바꿔요",
-  "<b>👥 친구 초대</b> — 링크 하나로 같은 월드에 바로 들어와요"
- ],
+ "features": [],
  "shots": [
   {
-   "src": "shots/s8_photo_card.jpg",
-   "caption": "사진을 제출하면 색감과 분위기를 읽어 감성 점수"
+   "src": "shots/s1_heaven_basin.jpg",
+   "caption": "눈 내리는 천국 분지의 밤"
   },
   {
-   "src": "shots/s9_photo_room.jpg",
-   "caption": "그 느낌으로 지어진 집 — 벽엔 진짜 사진 액자"
+   "src": "shots/s2_camp_third.jpg",
+   "caption": "3인칭으로 캠핑장 산책"
   },
   {
-   "src": "shots/s10_chest.jpg",
-   "caption": "땅굴에서 나온 반닫이 — 초대박!"
+   "src": "shots/s3_campfire.jpg",
+   "caption": "모닥불 곁에 모인 친구들"
   },
   {
-   "src": "shots/s11_store.jpg",
-   "caption": "다섯 칸 아래, 꿀알바 편의점"
+   "src": "shots/s4_parking_supercars.jpg",
+   "caption": "끝없는 주차장의 슈퍼카"
   },
   {
-   "src": "shots/s12_talk.jpg",
-   "caption": "동네 사람들과 대화"
+   "src": "shots/s5_yellow_rooms.jpg",
+   "caption": "노란 방, 비상구를 찾아라"
   },
   {
-   "src": "shots/s5_carpet_moon.jpg",
-   "caption": "1인칭 양탄자 비행 — 달빛 아래 (안드로이드 실제 화면)"
+   "src": "shots/s6_bunker.jpg",
+   "caption": "계단 아래 지하 벙커 대피소"
   },
   {
-   "src": "shots/s4_third_moon.jpg",
-   "caption": "3인칭 — 양탄자 타고 달빛 성 위로"
+   "src": "shots/s7_space.jpg",
+   "caption": "블랙홀이 떠 있는 우주"
   },
   {
-   "src": "shots/s1_castle.jpg",
-   "caption": "시작하자마자 보이는 달빛 첨탑성"
-  },
-  {
-   "src": "shots/s6_third_fly.jpg",
-   "caption": "어느 맵이든 양탄자로 빠르게 이동"
+   "src": "shots/s8_future_city.jpg",
+   "caption": "불빛 가득한 미래 도시"
   }
  ]
 }

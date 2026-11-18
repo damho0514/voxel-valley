@@ -2,128 +2,283 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<base href="../">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Voxel Valley 받기</title>
-<meta name="description" content="그려서 부수고, 마법 양탄자로 달빛 성 위를 나는 복셀 샌드박스. 안드로이드 앱 바로 받기 · 아이폰 무료 플레이.">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Voxel Valley — 마법 양탄자 타고 달빛 성으로">
-<meta property="og:description" content="안드로이드: 눌러서 바로 설치 · 아이폰: 무료로 홈 화면에 추가해서 플레이">
+<title>천국과 지옥</title>
+<meta name="description" content="눈 내리는 천국에서 시작해 노란 방의 공포를 뚫고 나가는 3D 블록 탐험 게임. 무료 · 웹 · 안드로이드 · 아이폰.">
+<meta property="og:title" content="천국과 지옥 — 무료로 바로 플레이">
+<meta property="og:description" content="설치 없이 브라우저에서 바로 · 안드로이드 APK · 아이폰 홈 화면 앱">
 <meta property="og:image" content="https://damho0514.github.io/voxel-valley/app/og.jpg">
-<meta property="og:url" content="https://damho0514.github.io/voxel-valley/app/">
-<meta name="theme-color" content="#2f4b5c">
+<meta property="og:url" content="https://damho0514.github.io/voxel-valley/">
+<meta name="theme-color" content="#0b0d14">
+<link rel="icon" href="play/icon-192.png">
+<link rel="apple-touch-icon" href="play/icon-180.png">
+<style>
+  :root {
+    --bg: #0b0d14; --panel: #141826; --panel2: #1b2133; --line: rgba(255,255,255,.08);
+    --ink: #eef1f8; --muted: #9aa3b8; --dim: #6b7389;
+    --heaven: #ffd77a; --heaven2: #fff2c9; --hell: #ff4d5e; --play: #5ccf52; --play2: #3fae37;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, sans-serif; }
+  a { color: inherit; }
+  .bgglow { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(900px 500px at 15% -10%, rgba(255,215,122,.16), transparent 60%),
+                radial-gradient(800px 500px at 100% 110%, rgba(255,77,94,.13), transparent 60%), var(--bg); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+
+  header.top { position: sticky; top: 0; z-index: 10; background: rgba(11,13,20,.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  header.top .wrap { display: flex; align-items: center; gap: 12px; height: 56px; }
+  header.top img { width: 30px; height: 30px; border-radius: 8px; }
+  header.top b { font-size: 16px; letter-spacing: .5px; }
+  header.top nav { margin-left: auto; display: flex; gap: 18px; font-size: 14px; color: var(--muted); }
+  header.top nav a { text-decoration: none; } header.top nav a:hover { color: var(--ink); }
+  header.top .mini { display: none; margin-left: auto; background: var(--play); color: #06210a; font-weight: 800; padding: 7px 14px; border-radius: 8px; text-decoration: none; font-size: 14px; }
+
+  .title { padding: 28px 0 14px; }
+  .title h1 { margin: 0; font-size: clamp(30px, 5vw, 46px); line-height: 1.1; letter-spacing: -.5px; }
+  .title h1 .h { background: linear-gradient(180deg, var(--heaven2), var(--heaven)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .title h1 .x { color: var(--dim); font-weight: 400; margin: 0 .15em; }
+  .title h1 .l { background: linear-gradient(180deg, #ff9aa3, var(--hell)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .title p { margin: 8px 0 0; color: var(--muted); font-size: 16px; max-width: 760px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tag { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  .stage { background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; position: relative; border: 1px solid var(--line); }
+  .stage img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .25s; }
+  .stage .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 14px 10px; font-size: 14px; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+  .stage .nav { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(0,0,0,.45); color: #fff; font-size: 20px; cursor: pointer; }
+  .stage .prev { left: 10px; } .stage .next { right: 10px; }
+  .strip { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 4px; scrollbar-width: thin; }
+  .strip button { flex: 0 0 auto; width: 116px; aspect-ratio: 16 / 9; padding: 0; border: 2px solid transparent; border-radius: 6px; overflow: hidden; background: #000; cursor: pointer; opacity: .6; }
+  .strip button.on { border-color: var(--heaven); opacity: 1; }
+  .strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  aside.buy { position: sticky; top: 72px; display: flex; flex-direction: column; gap: 12px; }
+  @media (max-width: 900px) { aside.buy { position: static; } }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .box h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: .3px; }
+  .price { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .price b { font-size: 22px; } .price span { color: var(--muted); font-size: 13px; }
+  .btn { display: flex; align-items: center; gap: 12px; width: 100%; text-decoration: none; border-radius: 10px; padding: 12px 14px; margin-top: 8px; border: 1px solid var(--line); background: var(--panel2); transition: transform .08s, background .15s; }
+  .btn:hover { background: #232a40; } .btn:active { transform: scale(.98); }
+  .btn .ic { font-size: 22px; width: 28px; text-align: center; }
+  .btn .t { display: flex; flex-direction: column; line-height: 1.3; }
+  .btn .t b { font-size: 15px; } .btn .t small { color: var(--muted); font-size: 12px; }
+  .btn.play { background: linear-gradient(180deg, var(--play), var(--play2)); border: 0; color: #06210a; padding: 16px; }
+  .btn.play .t small { color: rgba(6,33,10,.75); }
+  .btn.play .t b { font-size: 18px; }
+  .btn.rec { outline: 2px solid var(--heaven); outline-offset: 2px; }
+  .btn .you { margin-left: auto; font-size: 11px; background: var(--heaven); color: #2a1b00; font-weight: 800; padding: 2px 7px; border-radius: 999px; display: none; }
+  .btn.rec .you { display: inline-block; }
+  .note { font-size: 12px; color: var(--dim); margin-top: 10px; }
+  .facts { font-size: 13px; color: var(--muted); display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+  .facts span:nth-child(odd) { color: var(--dim); }
+
+  section { padding: 30px 0 4px; }
+  section h2 { font-size: 13px; letter-spacing: 1.5px; color: var(--muted); font-weight: 700; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .feat { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .feat div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .feat b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .feat p { margin: 0; color: var(--muted); font-size: 14px; }
+  .feat .hv { border-top: 2px solid var(--heaven); } .feat .hl { border-top: 2px solid var(--hell); } .feat .nt { border-top: 2px solid #6aa8ff; }
+
+  .how { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .how div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .how h4 { margin: 0 0 6px; font-size: 15px; }
+  .how ol { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .how ol b { color: var(--ink); }
+
+  .notes { display: flex; flex-direction: column; gap: 8px; }
+  .notes a { display: flex; gap: 12px; align-items: baseline; text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .notes a:hover { background: var(--panel2); }
+  .notes .v { color: var(--heaven); font-weight: 800; font-size: 13px; min-width: 64px; }
+  .notes .d { margin-left: auto; color: var(--dim); font-size: 12px; white-space: nowrap; }
+
+  .kakao { display: none; background: #fee500; color: #191600; border-radius: 10px; padding: 12px 14px; font-weight: 700; margin: 14px 0 0; }
+  footer { color: var(--dim); font-size: 12px; padding: 34px 0 40px; text-align: center; }
+  footer a { color: var(--muted); }
+  @media (max-width: 600px) { header.top nav { display: none; } header.top .mini { display: inline-block; } .strip button { width: 92px; } }
+</style>
 <script>
-  // KakaoTalk's in-app browser can be unreliable with file downloads: hand the page to the
-  // phone's real browser (Chrome / Samsung Internet / Safari) right away.
+  // KakaoTalk's in-app browser can't run the game or download files well: hand off to the real browser.
   (function () {
     var ua = navigator.userAgent || '';
     if (/KAKAOTALK/i.test(ua) && !/[?&]inapp=1/.test(location.search)) {
       location.replace('kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href));
     }
+    // Old invite links (…/app/?join=CODE or ?room=CODE) still go straight into the friend's room.
+    var m = /[?&](?:join|room)=([A-Za-z0-9]{5})/.exec(location.search);
+    if (m) location.replace(document.baseURI.replace(/[^/]*$/, '') + 'join/?room=' + m[1].toUpperCase());
   })();
 </script>
-<style>
-  :root { --bg:#13202b; --card:#1d2f3d; --ink:#f4f8fb; --muted:#a9bccb; --accent:#ffd166; --android:#3ddc84; --ios:#7cc4ff; --line:rgba(255,255,255,.1); }
-  * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",Roboto,sans-serif; }
-  main { max-width:720px; margin:0 auto; padding:24px 16px 56px }
-  h1 { font-size:30px; margin:8px 0 4px; letter-spacing:-.5px }
-  .sub { color:var(--muted); margin:0 0 20px }
-  .video { width:100%; aspect-ratio:20/9; border-radius:16px; overflow:hidden; background:#000; border:1px solid var(--line) }
-  .video video { width:100%; height:100%; display:block; object-fit:cover }
-  .btns { display:grid; gap:12px; margin:22px 0 }
-  .btn { display:flex; align-items:center; justify-content:center; gap:10px; min-height:58px; border-radius:14px; font-weight:800; font-size:18px; text-decoration:none; color:#0b1a12 }
-  .btn small { display:block; font-weight:600; font-size:12px; opacity:.75 }
-  .android { background:var(--android) }
-  .ios { background:var(--ios); color:#08233a }
-  .expo { background:#ffd166; color:#2a1b00 }
-  .qr { display:flex; gap:16px; align-items:center } .qr img { width:132px; height:132px; border-radius:12px; background:#fff; padding:6px }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px 18px; margin:14px 0 }
-  .card h2 { font-size:17px; margin:0 0 8px }
-  ol, ul { margin:0; padding-left:20px } li { margin:4px 0 }
-  .shots { display:grid; grid-template-columns:1fr; gap:10px; margin:14px 0 }
-  .shots img { width:100%; border-radius:12px; border:1px solid var(--line) }
-  .shots figcaption { color:var(--muted); font-size:13px; margin-top:4px }
-  .note { color:var(--muted); font-size:13px }
-  .kakao { display:none; background:#fee500; color:#191600; border-radius:12px; padding:12px 14px; font-weight:700; margin-bottom:14px }
-  @media (min-width:640px) { .shots { grid-template-columns:1fr 1fr } }
-</style>
 </head>
 <body>
-<main>
-  <div class="kakao" id="kakao">카카오톡 안에서 열렸어요. 다운로드가 안 되면 오른쪽 위 ⋮ → <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>
-  <h1>Voxel Valley</h1>
-  <p class="sub" id="tagline">그려서 부수고, 마법 양탄자로 달빛 성 위를 나는 복셀 샌드박스</p>
+<div class="bgglow"></div>
+<header class="top">
+  <div class="wrap">
+    <img src="play/icon-192.png" alt="">
+    <b>천국과 지옥</b>
+    <nav><a href="#features">게임 소개</a><a href="#install">설치 방법</a><a href="#news">업데이트</a><a href="https://github.com/damho0514/voxel-valley">GitHub</a></nav>
+    <a class="mini" href="play/">▶ 플레이</a>
+  </div>
+</header>
 
-  <div class="video"><video src="demo.mp4" poster="og.jpg" autoplay muted loop playsinline controls></video></div>
-
-  <div class="btns">
-    <a class="btn android" id="apk" href="https://github.com/damho0514/voxel-valley/releases/latest/download/VoxelValley.apk">
-      <span>🤖 안드로이드 앱 받기<small id="apkinfo">APK · 바로 설치</small></span></a>
-    <a class="btn expo" href="../go/"><span>📲 아이폰 · 안드로이드: Expo Go로 실행<small>무료 앱 Expo Go 안에서 바로 열려요</small></span></a>
-    <a class="btn ios" href="../play/"><span>🍎 아이폰 · PC: 무료로 바로 플레이<small>Safari에서 열고 → 홈 화면에 추가하면 앱처럼</small></span></a>
+<main class="wrap">
+  <div class="kakao" id="kakao">카카오톡 안에서는 게임이 잘 열리지 않아요. ⋯ 메뉴 → <b>다른 브라우저로 열기 / Safari로 열기</b>를 눌러 주세요.</div>
+  <div class="title">
+    <h1><span class="h">천국</span><span class="x">과</span><span class="l">지옥</span></h1>
+    <p id="tagline">눈 내리는 천국에서 모닥불을 쬐다가, 문 하나를 지나면 끝없는 노란 방. 부수고, 쌓고, 숨고, 도망치는 3D 블록 탐험 게임.</p>
+    <div class="tags"><span class="tag">무료</span><span class="tag">설치 없이 웹에서 바로</span><span class="tag">안드로이드</span><span class="tag">아이폰</span><span class="tag">친구와 같이</span><span class="tag">공포 · 탐험 · 샌드박스</span><span class="tag">한국어</span></div>
   </div>
 
-  <div class="card">
-    <h2>👥 친구와 같이 하기 (링크 한 번)</h2>
-    <p class="note" style="margin:0">게임 안 <b>☰ → 친구 초대</b>를 누르면 지금 월드가 온라인 방으로 열리고 초대 링크가 나와요. 카톡으로 보내면 받은 사람은 <b>누르기만 하면 설치 없이</b> 같은 서버의 같은 월드로 바로 들어와요. 아이폰·컴퓨터는 브라우저에서, 안드로이드는 앱이 있으면 앱으로 열려요.</p>
-  </div>
-
-  <div class="card" id="features">
-    <h2>새 기능</h2>
-    <ul id="featurelist"></ul>
-  </div>
-
-  <div class="shots" id="shots"></div>
-
-  <div class="card">
-    <h2>안드로이드 설치 방법</h2>
-    <ol>
-      <li>위의 <b>안드로이드 앱 받기</b>를 누르면 <code>VoxelValley.apk</code>가 내려받아져요.</li>
-      <li>다운로드 알림(또는 내 파일 › 다운로드)에서 파일을 눌러요.</li>
-      <li>처음이면 “출처를 알 수 없는 앱 설치 허용”을 켜고 <b>설치</b>를 눌러요.</li>
-    </ol>
-    <p class="note">Play 스토어가 아닌 곳에서 받은 앱이라 Play 프로텍트가 확인 창을 띄울 수 있어요. “무시하고 설치”를 누르면 됩니다.</p>
-  </div>
-
-  <div class="card">
-    <h2>아이폰에서 Expo Go로 실행 (무료 · 추천)</h2>
-    <div class="qr">
-      <img src="expogo-qr.png" alt="Expo Go로 열기 QR 코드">
-      <ol>
-        <li>App Store에서 <b>Expo Go</b>(무료)를 설치해요.</li>
-        <li>위의 <b>Expo Go로 실행</b>을 누르거나, 컴퓨터 화면이라면 이 QR을 아이폰 카메라로 찍어요.</li>
-        <li>Expo Go 안에서 게임이 열려요. 새 버전이 나오면 다음에 열 때 자동으로 바뀌어요.</li>
-      </ol>
+  <div class="grid">
+    <div>
+      <div class="stage" id="stage">
+        <img id="big" alt="">
+        <div class="cap" id="cap"></div>
+        <button class="nav prev" id="prev" aria-label="이전">‹</button>
+        <button class="nav next" id="next" aria-label="다음">›</button>
+      </div>
+      <div class="strip" id="strip"></div>
     </div>
+
+    <aside class="buy">
+      <div class="box">
+        <div class="price"><b>무료</b><span id="ver">최신 버전</span></div>
+        <a class="btn play" id="b-web" href="play/">
+          <span class="ic">▶</span><span class="t"><b>지금 플레이</b><small>브라우저에서 바로 · 설치 없음</small></span><span class="you">추천</span>
+        </a>
+        <a class="btn" id="b-android" href="https://github.com/damho0514/voxel-valley/releases/latest/download/VoxelValley.apk">
+          <span class="ic">🤖</span><span class="t"><b>안드로이드 앱 받기</b><small id="apkinfo">APK · 안드로이드 7.0 이상</small></span><span class="you">내 기기</span>
+        </a>
+        <a class="btn" id="b-iphone" href="#install">
+          <span class="ic">🍎</span><span class="t"><b>아이폰에 설치</b><small>홈 화면 앱 · 무료 · 앱스토어 필요 없음</small></span><span class="you">내 기기</span>
+        </a>
+        <a class="btn" id="b-expo" href="go/">
+          <span class="ic">📲</span><span class="t"><b>Expo Go로 열기</b><small>아이폰·안드로이드 앱 버전 (무료 Expo Go)</small></span>
+        </a>
+        <div class="note">PC·맥은 <b>지금 플레이</b>로 바로 시작해요. 키보드 WASD + 마우스.</div>
+      </div>
+      <div class="box">
+        <h3>정보</h3>
+        <div class="facts">
+          <span>버전</span><span id="ver2">—</span>
+          <span>장르</span><span>3D 블록 탐험 · 공포 · 샌드박스</span>
+          <span>플레이</span><span>혼자 · 친구 초대(링크 하나)</span>
+          <span>가격</span><span>무료 · 광고 없음</span>
+          <span>언어</span><span>한국어</span>
+        </div>
+      </div>
+    </aside>
   </div>
 
-  <div class="card">
-    <h2>아이폰 무료 설치 (홈 화면 앱)</h2>
-    <ol>
-      <li>위의 <b>아이폰 · PC: 무료로 바로 플레이</b>를 <b>Safari</b>에서 열어요. 카카오톡이면 오른쪽 아래 <b>⋯ → Safari로 열기</b>.</li>
-      <li>아래쪽 <b>공유 버튼(□↑)</b> → <b>홈 화면에 추가</b> → <b>추가</b>.</li>
-      <li>홈 화면에 생긴 <b>Voxel Valley</b> 아이콘을 누르면 주소창 없이 전체화면 앱처럼 실행돼요. 휴대폰은 가로로 들어 주세요.</li>
-    </ol>
-    <p class="note">완전히 무료예요. 애플은 앱스토어·TestFlight(연 $99 개발자 계정 필요)를 거치지 않은 앱 파일 설치를 막고 있어서, 아이폰은 같은 게임을 웹 앱으로 드려요. 진행 상황(머니·무기)은 그 아이폰의 Safari에 저장돼요.</p>
-  </div>
+  <section id="features">
+    <h2>게임 소개</h2>
+    <div class="feat" id="featurelist">
+      <div class="hv"><b>❄️ 눈 내리는 천국</b><p>벚꽃 테두리의 계단식 분지에 눈이 내려요. 저택, 기둥 회랑, 트리하우스, 빛기둥과 은하수.</p></div>
+      <div class="hv"><b>🔥 겨울 캠핑장</b><p>아이들이 모닥불에 둘러앉아 마시멜로를 구워요. 불을 끄고 켜고, 블루투스 스피커로 노래를 틀 수 있어요.</p></div>
+      <div class="hv"><b>🚪 지하 벙커</b><p>새로 뚫린 계단을 내려가면 불 켜진 대피소. 그 끝의 문은 주차장으로 이어져요.</p></div>
+      <div class="hl"><b>🟨 지옥, 노란 방</b><p>끝없이 이어지는 노란 방. 숨고, 깡통을 던져 따돌리고, 소리 금고를 열고, 샛문을 찾아 탈출해요.</p></div>
+      <div class="nt"><b>🏎️ 주차장 슈퍼카</b><p>여섯 대의 슈퍼카에 시동을 걸어 보세요. 주차장을 나서면 다음 맵이 무작위로 정해져요: 미래 도시, 우주, 편의점.</p></div>
+      <div class="nt"><b>🗡️ 한 버튼 액션</b><p>빛나는 검으로 부수고, 유리와 블록으로 쌓아요. 탭 한 번이면 정확히 한 블록.</p></div>
+      <div class="nt"><b>🎧 공간마다 다른 소리</b><p>눈길·벙커·물속마다 다른 발소리, 장소마다 바뀌는 음악. 캐릭터마다 걸음걸이와 동작도 달라요.</p></div>
+      <div class="nt"><b>👥 친구 초대</b><p>메뉴 → 친구 초대. 링크 하나만 보내면 같은 월드에서 바로 만나요. 설치 안 해도 돼요.</p></div>
+    </div>
+  </section>
 
-  <p class="note">모든 효과음·배경음은 코드로 직접 합성했고, 아이콘·블록 텍스처·UI도 직접 그려 만든 것이라 외부 저작물을 쓰지 않았어요.</p>
+  <section id="install">
+    <h2>설치 방법</h2>
+    <div class="how">
+      <div>
+        <h4>💻 PC · 맥 · 태블릿</h4>
+        <ol><li><b>지금 플레이</b>를 누르면 끝. 설치가 필요 없어요.</li><li>크롬·엣지·사파리 최신 버전을 권장해요.</li></ol>
+      </div>
+      <div>
+        <h4>🤖 안드로이드</h4>
+        <ol><li><b>안드로이드 앱 받기</b>로 APK를 내려받아요.</li><li>파일을 열고 “출처를 알 수 없는 앱” 설치를 허용해요.</li><li>설치 후 <b>천국과 지옥</b>을 실행해요.</li></ol>
+      </div>
+      <div>
+        <h4>🍎 아이폰 (무료, 앱스토어 없이)</h4>
+        <ol><li><b>Safari</b>로 <a href="play/">게임 페이지</a>를 열어요.</li><li>아래 공유 버튼 <b>⬆︎</b> → <b>홈 화면에 추가</b>.</li><li>홈 화면 아이콘으로 실행하면 전체 화면 앱처럼 돌아가요. 가로로 들어 주세요.</li></ol>
+      </div>
+      <div>
+        <h4>📲 Expo Go (앱 버전)</h4>
+        <ol><li>App Store / Google Play에서 무료 <b>Expo Go</b>를 설치해요.</li><li><a href="go/">Expo Go로 열기</a>를 누르면 게임이 열려요.</li></ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="news">
+    <h2>최근 업데이트</h2>
+    <div class="notes" id="notes"><a href="https://github.com/damho0514/voxel-valley/releases"><span class="v">전체</span><span>모든 업데이트 보기</span></a></div>
+  </section>
 </main>
+
+<footer>
+  천국과 지옥 (이전 이름: Voxel Valley) · 무료 게임 · <a href="https://github.com/damho0514/voxel-valley">GitHub</a> · <a href="https://github.com/damho0514/voxel-valley/releases">모든 버전</a>
+</footer>
+
 <script>
-  if (/KAKAOTALK/i.test(navigator.userAgent)) document.getElementById('kakao').style.display = 'block';
-  // Filled in at publish time from release.json (version, size, features, screenshots).
-  fetch('release.json').then(function (r) { return r.json(); }).then(function (d) {
-    if (d.tagline) document.getElementById('tagline').textContent = d.tagline;
-    if (d.apkInfo) document.getElementById('apkinfo').textContent = d.apkInfo;
-    var ul = document.getElementById('featurelist');
-    (d.features || []).forEach(function (f) { var li = document.createElement('li'); li.innerHTML = f; ul.appendChild(li); });
-    var shots = document.getElementById('shots');
-    (d.shots || []).forEach(function (s) {
-      var fig = document.createElement('figure'); fig.style.margin = 0;
-      fig.innerHTML = '<img loading="lazy" src="' + s.src + '" alt=""><figcaption>' + s.caption + '</figcaption>';
-      shots.appendChild(fig);
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var ua = navigator.userAgent || '';
+  if (/KAKAOTALK/i.test(ua)) $('kakao').style.display = 'block';
+
+  // Recommend the right button for this device.
+  var ios = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var android = /Android/i.test(ua);
+  ($(android ? 'b-android' : ios ? 'b-iphone' : 'b-web')).classList.add('rec');
+  if (ios) $('b-iphone').href = '#install';
+
+  // Screenshots + version, from app/release.json (the release pipeline keeps version and APK size current).
+  var shots = [];
+  var i = 0;
+  function show(n) {
+    if (!shots.length) return;
+    i = (n + shots.length) % shots.length;
+    $('big').src = shots[i].src; $('cap').textContent = shots[i].caption || '';
+    var bs = $('strip').children;
+    for (var k = 0; k < bs.length; k++) bs[k].classList.toggle('on', k === i);
+  }
+  $('prev').onclick = function () { show(i - 1); };
+  $('next').onclick = function () { show(i + 1); };
+  var timer = setInterval(function () { show(i + 1); }, 6000);
+  $('stage').addEventListener('pointerdown', function () { clearInterval(timer); });
+
+  fetch('app/release.json', { cache: 'no-cache' }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.version) { $('ver').textContent = 'v' + d.version; $('ver2').textContent = 'v' + d.version; }
+    if (d.apkInfo) $('apkinfo').textContent = d.apkInfo;
+    shots = (d.shots || []).map(function (s) { return { src: 'app/' + s.src, caption: s.caption }; });
+    shots.forEach(function (s, n) {
+      var b = document.createElement('button');
+      b.innerHTML = '<img loading="lazy" alt="" src="' + s.src + '">';
+      b.onclick = function () { clearInterval(timer); show(n); };
+      $('strip').appendChild(b);
+    });
+    show(0);
+  }).catch(function () {});
+
+  // Latest releases straight from GitHub.
+  fetch('https://api.github.com/repos/damho0514/voxel-valley/releases?per_page=5').then(function (r) { return r.json(); }).then(function (list) {
+    if (!Array.isArray(list)) return;
+    var box = $('notes'), all = box.lastElementChild;
+    list.forEach(function (rel) {
+      var a = document.createElement('a');
+      a.href = rel.html_url;
+      var d = new Date(rel.published_at);
+      a.innerHTML = '<span class="v"></span><span class="n"></span><span class="d"></span>';
+      a.children[0].textContent = rel.tag_name;
+      a.children[1].textContent = rel.name || '';
+      a.children[2].textContent = (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
+      box.insertBefore(a, all);
     });
   }).catch(function () {});
+})();
 </script>
 </body>
 </html>
