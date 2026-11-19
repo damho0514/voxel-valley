@@ -123,7 +123,7 @@
     <img src="play/icon-192.png" alt="">
     <b>천국과 지옥</b>
     <nav><a href="#features">게임 소개</a><a href="#install">설치 방법</a><a href="#news">업데이트</a><a href="https://github.com/damho0514/voxel-valley">GitHub</a></nav>
-    <a class="mini" href="play/">▶ 플레이</a>
+    <a class="mini" href="play/" data-launch>▶ 플레이</a>
   </div>
 </header>
 
@@ -149,8 +149,8 @@
     <aside class="buy">
       <div class="box">
         <div class="price"><b>무료</b><span id="ver">최신 버전</span></div>
-        <a class="btn play" id="b-web" href="play/">
-          <span class="ic">▶</span><span class="t"><b>지금 플레이</b><small>브라우저에서 바로 · 설치 없음</small></span><span class="you">추천</span>
+        <a class="btn play" id="b-web" href="play/" data-launch>
+          <span class="ic">▶</span><span class="t"><b>지금 플레이</b><small id="websub">브라우저에서 바로 · 설치 없음</small></span><span class="you">추천</span>
         </a>
         <a class="btn" id="b-android" href="https://github.com/damho0514/voxel-valley/releases/latest/download/VoxelValley.apk">
           <span class="ic">🤖</span><span class="t"><b>안드로이드 앱 받기</b><small id="apkinfo">APK · 안드로이드 7.0 이상</small></span><span class="you">내 기기</span>
@@ -161,7 +161,7 @@
         <a class="btn" id="b-expo" href="go/">
           <span class="ic">📲</span><span class="t"><b>Expo Go로 열기</b><small>아이폰·안드로이드 앱 버전 (무료 Expo Go)</small></span>
         </a>
-        <div class="note">PC·맥은 <b>지금 플레이</b>로 바로 시작해요. 키보드 WASD + 마우스.</div>
+        <div class="note">PC·맥에서 <b>지금 플레이</b>를 누르면 전체 화면으로 시작해요. 키보드 WASD + 마우스, 나가려면 Esc.</div>
       </div>
       <div class="box">
         <h3>정보</h3>
@@ -195,7 +195,7 @@
     <div class="how">
       <div>
         <h4>💻 PC · 맥 · 태블릿</h4>
-        <ol><li><b>지금 플레이</b>를 누르면 끝. 설치가 필요 없어요.</li><li>크롬·엣지·사파리 최신 버전을 권장해요.</li></ol>
+        <ol><li><b>지금 플레이</b>를 누르면 전체 화면으로 바로 시작해요. 설치가 필요 없어요.</li><li>Esc를 누르면 창 모드가 되고, <b>✕ 닫기</b>로 나와요.</li><li>크롬·엣지·사파리 최신 버전을 권장해요.</li></ol>
       </div>
       <div>
         <h4>🤖 안드로이드</h4>
@@ -279,5 +279,54 @@
   }).catch(function () {});
 })();
 </script>
+<style>
+  .launch { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; }
+  .launch iframe { flex: 1; border: 0; width: 100%; height: 100%; background: #000; }
+  .launch .bar { position: absolute; top: 12px; right: 12px; display: none; gap: 8px; }
+  .launch.windowed .bar { display: flex; }
+  .launch .bar button { font: 600 13px/1 -apple-system, "Apple SD Gothic Neo", sans-serif; color: #fff; background: rgba(20,20,28,.82); border: 1px solid rgba(255,255,255,.18); border-radius: 999px; padding: 9px 14px; cursor: pointer; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .launch .bar button:hover { background: rgba(40,40,56,.92); }
+</style>
+<script>
+  // Steam-style launch on computers: the web app opens over the page and fills the whole screen.
+  // Phones and tablets just follow the link (the home-screen app is already full screen there).
+  (function () {
+    var desktop = window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches;
+    function launch(url) {
+      var ov = document.createElement('div');
+      ov.className = 'launch windowed';
+      ov.innerHTML = '<iframe allow="autoplay; fullscreen; encrypted-media; picture-in-picture; gamepad; microphone; clipboard-write" allowfullscreen></iframe>' +
+        '<div class="bar"><button data-a="full">⛶ 전체 화면</button><button data-a="close">✕ 닫기</button></div>';
+      var frame = ov.querySelector('iframe');
+      frame.src = url;
+      document.body.appendChild(ov);
+      document.documentElement.style.overflow = 'hidden';
+      var full = function () { if (ov.requestFullscreen) ov.requestFullscreen().catch(function () {}); else if (ov.webkitRequestFullscreen) ov.webkitRequestFullscreen(); };
+      var close = function () {
+        if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+        ov.remove();
+        document.documentElement.style.overflow = '';
+        document.removeEventListener('fullscreenchange', sync);
+      };
+      var sync = function () { ov.classList.toggle('windowed', document.fullscreenElement !== ov); };
+      document.addEventListener('fullscreenchange', sync);
+      ov.querySelector('[data-a=full]').onclick = full;
+      ov.querySelector('[data-a=close]').onclick = close;
+      frame.addEventListener('load', function () { try { frame.focus(); frame.contentWindow.focus(); } catch (e) {} });
+      full();
+    }
+    window.__launch = function (a, ev) {
+      if (!desktop) return true;
+      if (ev) ev.preventDefault();
+      launch(a.href);
+      return false;
+    };
+    document.addEventListener('click', function (ev) {
+      var a = ev.target.closest && ev.target.closest('a[data-launch]');
+      if (a && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey) window.__launch(a, ev);
+    });
+  })();
+</script>
+
 </body>
 </html>
