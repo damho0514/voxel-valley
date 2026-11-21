@@ -2,7 +2,7 @@
 
 눈 내리는 **천국**에서 시작해, 차원문을 지나 끝없는 **노란 방**과 귀신이 나오는 **지하 주차장**으로 가는 3D 블록 탐험 게임이에요. **무료**예요.
 
-**최신 버전 v1.36.1** · 웹 · 안드로이드 · 아이폰 모두 같은 버전 · [바뀐 점 보기](https://github.com/damho0514/voxel-valley/releases/latest)
+**최신 버전 v1.41.0** · 웹 · 안드로이드 · 아이폰 모두 같은 버전 · [바뀐 점 보기](https://github.com/damho0514/voxel-valley/releases/latest)
 
 ## ▶ [게임 페이지 열기 — damho0514.github.io/voxel-valley](https://damho0514.github.io/voxel-valley/)
 
