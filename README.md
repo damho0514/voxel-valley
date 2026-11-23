@@ -2,7 +2,7 @@
 
 눈 내리는 **천국**에 문 다섯 개. 4분 동안 각자의 문 너머에서 장비를 모으고, 문이 닫히면 모은 장비의 스킬로 **1:1 결투**를 벌이는 3D 판타지 파밍 배틀이에요. 문 하나는 심해로 이어지고, 그 문을 연 사람이 숨은 보스예요. **무료**예요.
 
-**최신 버전 v1.44.0** · 웹 · 안드로이드 · 아이폰 모두 같은 버전 · [바뀐 점 보기](https://github.com/damho0514/voxel-valley/releases/latest)
+**최신 버전 v1.45.0** · 웹 · 안드로이드 · 아이폰 모두 같은 버전 · [바뀐 점 보기](https://github.com/damho0514/voxel-valley/releases/latest)
 
 ## ▶ [게임 페이지 열기 — damho0514.github.io/voxel-valley](https://damho0514.github.io/voxel-valley/)
 
